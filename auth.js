@@ -3,6 +3,7 @@ import {
   auth,
   db,
   isAdminAuthEmail,
+  PRIMARY_ADMIN_STUDENT_NUMBER,
   sumsEmail,
 } from "./firebase.js";
 import {
@@ -36,6 +37,9 @@ function cleanStudentNumber(value) {
 
 function loginEmail(identifier) {
   const value = String(identifier || "").trim().toLowerCase();
+  // The fixed primary administrator keeps the existing verified Active!Mail
+  // Firebase identity so its UID, password, and stored data are not migrated.
+  if (value === PRIMARY_ADMIN_STUDENT_NUMBER) return sumsEmail(value);
   if (/^\d{7}$/.test(value)) return adminAuthEmail(value);
   if (value.endsWith("@sums.ac.jp")) return sumsEmail(value.slice(0, -"@sums.ac.jp".length));
   return sumsEmail(value);
