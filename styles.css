@@ -69,3 +69,19 @@ html.dark .panel,html.dark .card,html.dark .auth-card,html.dark .message-card,ht
 .report-form{gap:15px}.report-form h2,.report-form p{margin:0}.report-reason-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.report-reason-grid button{min-height:54px;padding:8px;border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);font-size:13px;font-weight:850}.report-reason-grid button.active{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 14%,var(--card));color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}.field-note{display:block;margin-top:5px;color:var(--muted);font-size:11px}
 .report-view-switch{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:12px 0;padding:5px;border:1px solid var(--border);border-radius:15px;background:var(--card)}.report-view-switch button{min-height:44px;border:0;border-radius:11px;background:transparent;color:var(--muted);font-weight:850}.report-view-switch button.active{background:linear-gradient(135deg,var(--accent),var(--primary));color:#fff}.report-view-switch b{display:inline-grid;min-width:22px;height:22px;margin-left:5px;padding:0 5px;place-items:center;border-radius:999px;background:color-mix(in srgb,currentColor 13%,transparent);font-size:11px}.report-row{align-items:flex-start}.report-row>div:first-child{min-width:0}.report-question{margin:7px 0;white-space:pre-wrap;overflow-wrap:anywhere}.report-details{margin:10px 0;padding:10px 12px;border-left:4px solid var(--primary);border-radius:10px;background:color-mix(in srgb,var(--primary) 8%,var(--bg))}.report-details p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.report-actions{display:grid;justify-items:end;gap:9px;flex:0 0 auto}.report-actions .chip.danger{background:#e5484d16;color:#c93239}
 @media(max-width:620px){.admin-notification-banner{align-items:stretch;flex-direction:column}.admin-notification-banner button{width:100%}.report-reason-grid{grid-template-columns:1fr}.report-row{align-items:stretch}.report-actions{grid-template-columns:1fr auto;align-items:center}.report-actions button{width:100%}}
+
+/* Direct correction editor inside the admin report list */
+.report-row{flex-wrap:wrap}
+.report-row .report-correction-panel{flex:1 0 100%;width:100%;min-width:0;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--bg)}
+.report-correction-panel .editor-section-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.report-correction-form{width:100%}
+.report-correction-form label{min-width:0}
+.report-correction-form textarea{resize:vertical}
+.report-correction-form [data-correction-error]:empty{display:none}
+.report-edit-choices{display:grid;gap:10px}
+.report-choice-edit-list{display:grid;gap:10px}
+.report-choice-edit-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px}
+.report-choice-correct{display:flex!important;align-items:center;gap:5px;white-space:nowrap;font-size:12px!important}
+.report-choice-correct input{min-height:0!important;width:18px!important;height:18px!important;accent-color:var(--primary)}
+.report-choice-edit-row .secondary-button{min-height:42px;padding:8px 12px}
+@media(max-width:620px){.report-correction-panel{padding:13px!important}.report-choice-edit-row{grid-template-columns:auto minmax(0,1fr)}.report-choice-edit-row .secondary-button{grid-column:2;justify-self:end;min-height:32px}.report-actions{justify-items:stretch}.report-actions .chip{justify-self:end}}

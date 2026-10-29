@@ -16,8 +16,8 @@ import {
   resendVerification,
 } from "./auth.js?v=7";
 import { renderTestHome } from "./exam.js?v=7";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=7";
-import { watchOpenQuestionReports } from "./store.js?v=7";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=8";
+import { watchOpenQuestionReports } from "./store.js?v=8";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

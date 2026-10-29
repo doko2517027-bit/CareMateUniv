@@ -132,6 +132,74 @@ export async function reportQuestion({ uid, studentNumber = "", reporterName = "
   if (!confirmation.exists()) throw new Error("修正依頼の保存を確認できませんでした。もう一度お試しください。");
   return reference.id;
 }
+export async function applyQuestionReportCorrection({ reportId, questionIndex, original, updated }) {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("ログインしてください。");
+  if (!Number.isInteger(questionIndex) || questionIndex < 0) throw new Error("対象の問題番号が正しくありません。");
+  const reportRef = doc(db, COLLECTIONS.reports, reportId);
+  await runTransaction(db, async (transaction) => {
+    const reportSnap = await transaction.get(reportRef);
+    if (!reportSnap.exists()) throw new Error("この修正依頼は見つかりません。");
+    const report = reportSnap.data();
+    if ((report.status || "open") !== "open") throw new Error("この修正依頼は対応済みです。画面を再読み込みしてください。");
+    const type = report.type;
+    if (type !== "quiz" && type !== "fill_blank") throw new Error("この問題形式には対応していません。");
+    if (!report.subjectId || !report.unitId) throw new Error("対象の単元が指定されていません。");
+    const unitRef = doc(db, COLLECTIONS.subjects, report.subjectId, "units", report.unitId);
+    const unitSnap = await transaction.get(unitRef);
+    if (!unitSnap.exists()) throw new Error("対象の単元が削除されています。");
+    const questions = unitSnap.data()[type];
+    if (!Array.isArray(questions) || !questions[questionIndex]) throw new Error("対象の問題が見つかりません。");
+    const current = questions[questionIndex];
+    if (current.question !== report.question || JSON.stringify(current) !== JSON.stringify(original)) {
+      throw new Error("対象の問題がすでに変更されています。修正依頼を開き直して内容を確認してください。");
+    }
+    const required = (value, limit, label) => {
+      const text = String(value ?? "").trim();
+      if (!text || text.length > limit) throw new Error(`${label}を入力し、${limit}文字以内にしてください。`);
+      return text;
+    };
+    const explanation = String(updated.explanation ?? "").trim();
+    if (explanation.length > 2000) throw new Error("解説は2000文字以内で入力してください。");
+    const corrected = {
+      ...current,
+      question: required(updated.question, 1000, "問題文"),
+      explanation,
+    };
+    if (type === "quiz") {
+      if (!Array.isArray(updated.choices) || updated.choices.length < 2 || updated.choices.length > 50) {
+        throw new Error("選択肢は2個以上50個以下にしてください。");
+      }
+      const choices = updated.choices.map((choice) => required(choice, 500, "選択肢"));
+      if (!Array.isArray(updated.answers) || !updated.answers.length ||
+          updated.answers.some((answer) => !Number.isInteger(answer) || answer < 0 || answer >= choices.length) ||
+          new Set(updated.answers).size !== updated.answers.length) {
+        throw new Error("正解の選択肢を1つ以上選んでください。");
+      }
+      corrected.choices = choices;
+      corrected.answer = updated.answers[0];
+      if (updated.answers.length > 1) corrected.answers = updated.answers;
+      else delete corrected.answers;
+    } else {
+      if (!Array.isArray(updated.answers) || !updated.answers.length || updated.answers.length > 30) {
+        throw new Error("穴埋めの解答を1～30個入力してください。");
+      }
+      const answers = updated.answers.map((value) => required(value, 300, "穴埋めの解答"));
+      corrected.answers = answers;
+      corrected.answer = required(updated.answer || answers.join("・"), 500, "表示する答え");
+    }
+    const next = [...questions];
+    next[questionIndex] = corrected;
+    transaction.update(unitRef, { [type]: next, updatedAt: serverTimestamp() });
+    transaction.update(reportRef, {
+      status: "resolved",
+      resolvedAt: serverTimestamp(),
+      resolvedByUid: currentUser.uid,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function listQuestionReports() {
   const snapshot = await getDocs(collection(db, COLLECTIONS.reports));
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))

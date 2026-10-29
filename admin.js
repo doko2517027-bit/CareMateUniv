@@ -1,5 +1,6 @@
 import { auth } from "./firebase.js?v=7";
 import {
+  applyQuestionReportCorrection,
   cancelInvite,
   createAdminInvite,
   deleteStudyUser,
@@ -20,7 +21,7 @@ import {
   saveUnit,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=7";
+} from "./store.js?v=8";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";
@@ -279,8 +280,137 @@ async function renderUnitManager(root, context, category, subject) {
   root.querySelectorAll("[data-delete-unit]").forEach((button) => button.addEventListener("click", async () => { if (await context.confirm("この単元と問題を削除しますか？")) { await removeUnit(subject.id, button.dataset.deleteUnit); renderUnitManager(root, context, category, subject); } }));
 }
 
+function reportCorrectionChoiceRow(choice = "", checked = false) {
+  return `<div class="report-choice-edit-row">
+    <label class="report-choice-correct"><input data-correction-correct type="checkbox" ${checked ? "checked" : ""}><span>正解</span></label>
+    <input data-correction-choice class="field" maxlength="500" value="${escapeHtml(choice)}" required aria-label="選択肢">
+    <button type="button" data-correction-remove class="secondary-button compact-button">削除</button>
+  </div>`;
+}
+
+async function openReportQuestionEditor(button, report, context, refresh) {
+  const row = button.closest(".report-row");
+  if (!row) return;
+  const oldPanel = row.querySelector(".report-correction-panel");
+  if (oldPanel) {
+    oldPanel.remove();
+    button.textContent = "問題・答え・解説を修正";
+    return;
+  }
+  const panel = document.createElement("section");
+  panel.className = "report-correction-panel";
+  panel.setAttribute("aria-label", "修正依頼から問題を直接編集");
+  panel.innerHTML = '<p class="hint">対象の問題を読み込んでいます…</p>';
+  row.append(panel);
+  button.textContent = "編集を閉じる";
+  try {
+    if (!report.subjectId || !report.unitId || !["quiz", "fill_blank"].includes(report.type)) {
+      throw new Error("この修正依頼には編集できる問題の情報がありません。");
+    }
+    const unit = await getUnit(report.subjectId, report.unitId);
+    if (!unit) throw new Error("対象の単元が見つかりません。");
+    const items = Array.isArray(unit[report.type]) ? unit[report.type] : [];
+    let index = Number(report.index);
+    if (!Number.isInteger(index) || items[index]?.question !== report.question) {
+      const matches = items.map((item, i) => item.question === report.question ? i : -1).filter((i) => i >= 0);
+      if (matches.length !== 1) {
+        throw new Error("報告された問題を特定できません。問題が編集・削除されている可能性があります。テスト管理から確認してください。");
+      }
+      index = matches[0];
+    }
+    const original = JSON.parse(JSON.stringify(items[index]));
+    const answers = Array.isArray(original.answers) && original.answers.length ? original.answers : [original.answer ?? 0];
+    const questionFields = report.type === "quiz"
+      ? `<div class="report-edit-choices"><div class="editor-section-heading"><strong>選択肢と正解</strong><small>正解は複数選択可</small></div>
+          <div class="report-choice-edit-list">${(original.choices || []).map((choice, i) => reportCorrectionChoiceRow(choice, answers.map(Number).includes(i))).join("")}</div>
+          <button class="secondary-button" data-correction-add type="button">＋ 選択肢を追加</button></div>`
+      : `<label>空欄ごとの正解（1行につき1つ）<textarea name="fillAnswers" rows="4" required>${escapeHtml((original.answers || []).join("\n"))}</textarea></label>
+         <label>採点後に表示する答え<input name="displayAnswer" maxlength="500" required value="${escapeHtml(original.answer || (original.answers || []).join("・"))}"></label>`;
+    panel.innerHTML = `<form class="form-stack report-correction-form">
+      <div class="editor-section-heading"><strong>${escapeHtml(unit.name || "単元")} / ${report.type === "quiz" ? "選択問題" : "穴埋め問題"} ${index + 1}</strong><span class="chip">修正依頼から編集</span></div>
+      <p class="hint">問題文・正解・解説を直接修正できます。保存すると学生側に反映され、この依頼は「修正済み」に移ります。</p>
+      <label>問題文<textarea name="question" maxlength="1000" rows="3" required>${escapeHtml(original.question || "")}</textarea></label>
+      ${questionFields}
+      <label>解説<textarea name="explanation" maxlength="2000" rows="4">${escapeHtml(original.explanation || "")}</textarea></label>
+      <p class="status" data-correction-error role="alert"></p>
+      <div class="inline-actions"><button type="button" class="secondary-button" data-correction-cancel>キャンセル</button><button type="submit" class="primary-button">修正して保存</button></div>
+    </form>`;
+    const form = panel.querySelector("form");
+    form.querySelector("[data-correction-cancel]").addEventListener("click", () => {
+      panel.remove();
+      button.textContent = "問題・答え・解説を修正";
+    });
+    if (report.type === "quiz") {
+      const rows = form.querySelector(".report-choice-edit-list");
+      form.querySelector("[data-correction-add]").addEventListener("click", () => {
+        if (rows.children.length >= 50) return;
+        rows.insertAdjacentHTML("beforeend", reportCorrectionChoiceRow());
+        rows.lastElementChild.querySelector("[data-correction-choice]").focus();
+      });
+      rows.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-correction-remove]")) return;
+        if (rows.children.length <= 2) {
+          form.querySelector("[data-correction-error]").textContent = "選択肢は2個以上必要です。";
+          return;
+        }
+        event.target.closest(".report-choice-edit-row").remove();
+      });
+    } else {
+      const answerField = form.elements.fillAnswers;
+      const displayField = form.elements.displayAnswer;
+      let customDisplay = (original.answer || "") !== (original.answers || []).join("・");
+      answerField.addEventListener("input", () => {
+        if (!customDisplay) {
+          displayField.value = answerField.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join("・");
+        }
+      });
+      displayField.addEventListener("input", () => { customDisplay = true; });
+    }
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const output = form.querySelector("[data-correction-error]");
+      output.textContent = "";
+      try {
+        const updated = {
+          question: form.elements.question.value.trim(),
+          explanation: form.elements.explanation.value.trim(),
+        };
+        if (report.type === "quiz") {
+          const rows = [...form.querySelectorAll(".report-choice-edit-row")];
+          updated.choices = rows.map((entry) => entry.querySelector("[data-correction-choice]").value.trim());
+          updated.answers = rows.flatMap((entry, i) => entry.querySelector("[data-correction-correct]").checked ? [i] : []);
+          if (updated.choices.some((choice) => !choice)) throw new Error("選択肢をすべて入力してください。");
+          if (!updated.answers.length) throw new Error("正解を1つ以上選択してください。");
+        } else {
+          updated.answers = form.elements.fillAnswers.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+          updated.answer = form.elements.displayAnswer.value.trim();
+          if (!updated.answers.length) throw new Error("穴埋めの解答を入力してください。");
+        }
+        const submit = form.querySelector('[type="submit"]');
+        submit.disabled = true;
+        try {
+          await applyQuestionReportCorrection({ reportId: report.id, questionIndex: index, original, updated });
+          context.toast("問題を保存し、修正依頼を修正済みにしました。");
+          await refresh();
+        } finally {
+          submit.disabled = false;
+        }
+      } catch (error) {
+        output.textContent = error.message || "保存できませんでした。もう一度お試しください。";
+      }
+    });
+  } catch (error) {
+    panel.innerHTML = `<p class="status error" role="alert">${escapeHtml(error.message || "問題を取得できませんでした。")}</p>
+      <button class="secondary-button" type="button">閉じる</button>`;
+    panel.querySelector("button").addEventListener("click", () => {
+      panel.remove();
+      button.textContent = "問題・答え・解説を修正";
+    });
+  }
+}
+
 async function renderReports(root, context) {
-  root.innerHTML = `${adminHeader("問題の修正依頼", "学生・管理者から届いた報告", () => renderAdminMenu(root, context))}<div class="report-view-switch" role="tablist" aria-label="修正依頼の状態"><button class="active" data-report-view="open" type="button">未対応 <b id="openReportCount">0</b></button><button data-report-view="resolved" type="button">修正済み <b id="resolvedReportCount">0</b></button></div><section class="panel"><div class="panel-header"><div><h2 id="reportListTitle">未対応の修正依頼</h2><p>内容を確認し、修正後に「修正済みにする」を押してください。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
+  root.innerHTML = `${adminHeader("問題の修正依頼", "学生・管理者から届いた報告", () => renderAdminMenu(root, context))}<div class="report-view-switch" role="tablist" aria-label="修正依頼の状態"><button class="active" data-report-view="open" type="button">未対応 <b id="openReportCount">0</b></button><button data-report-view="resolved" type="button">修正済み <b id="resolvedReportCount">0</b></button></div><section class="panel"><div class="panel-header"><div><h2 id="reportListTitle">未対応の修正依頼</h2><p>「問題・答え・解説を修正」から直接編集して保存できます。確認のみの場合は「修正済みにする」を利用してください。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const reportList = root.querySelector("#reportList");
   try {
@@ -294,7 +424,11 @@ async function renderReports(root, context) {
       const items = resolved ? resolvedReports : openReports;
       root.querySelector("#reportListTitle").textContent = resolved ? "修正済み一覧" : "未対応の修正依頼";
       root.querySelectorAll("[data-report-view]").forEach((button) => button.classList.toggle("active", button.dataset.reportView === view));
-      reportList.innerHTML = items.length ? items.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p class="report-question">${escapeHtml(item.question)}</p>${item.details ? `<div class="report-details"><b>修正内容</b><p>${escapeHtml(item.details)}</p></div>` : `<p class="hint">修正内容の入力はありません。</p>`}<p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><div class="report-actions"><span class="chip ${resolved ? "" : "danger"}">${resolved ? "修正済み" : "未対応"}</span><button class="${resolved ? "secondary-button" : "primary-button"} compact-button" data-report-status="${escapeHtml(item.id)}" data-next-status="${resolved ? "open" : "resolved"}" type="button">${resolved ? "未対応へ戻す" : "修正済みにする"}</button></div></article>`).join("") : `<div class="empty">${resolved ? "修正済みの依頼はありません。" : "未対応の修正依頼はありません。"}</div>`;
+      reportList.innerHTML = items.length ? items.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p class="report-question">${escapeHtml(item.question)}</p>${item.details ? `<div class="report-details"><b>修正内容</b><p>${escapeHtml(item.details)}</p></div>` : `<p class="hint">修正内容の入力はありません。</p>`}<p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><div class="report-actions"><span class="chip ${resolved ? "" : "danger"}">${resolved ? "修正済み" : "未対応"}</span>${resolved ? "" : `<button class="secondary-button compact-button" data-report-edit="${escapeHtml(item.id)}" type="button">問題・答え・解説を修正</button>`}<button class="${resolved ? "secondary-button" : "primary-button"} compact-button" data-report-status="${escapeHtml(item.id)}" data-next-status="${resolved ? "open" : "resolved"}" type="button">${resolved ? "未対応へ戻す" : "修正済みにする"}</button></div></article>`).join("") : `<div class="empty">${resolved ? "修正済みの依頼はありません。" : "未対応の修正依頼はありません。"}</div>`;
+      reportList.querySelectorAll("[data-report-edit]").forEach((button) => button.addEventListener("click", () => {
+        const report = items.find((item) => item.id === button.dataset.reportEdit);
+        if (report) openReportQuestionEditor(button, report, context, () => renderReports(root, context));
+      }));
       reportList.querySelectorAll("[data-report-status]").forEach((button) => button.addEventListener("click", async () => {
         try {
           context.loading(true, "修正依頼を更新中…");
