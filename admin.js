@@ -119,13 +119,13 @@ async function renderAnalytics(root, context, options = {}) {
   root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}<section class="panel"><div class="panel-header"><div><h2>${personal ? "自分の学習分析" : "学生全体の学習分析"}</h2><p>問題ごとの正答率、解答回数、苦手傾向を確認できます。</p></div><span class="chip">集計中</span></div><div class="empty">学習結果を読み込んでいます…</div></section>`;
   if (options.back) bindAdminBack(root, options.back);
   try {
-    const [subjects, directory] = await Promise.all([listSubjects(), personal ? Promise.resolve(null) : listUsersAndInvites()]);
+    const [subjects, directory] = await Promise.all([listSubjects({ publishedOnly: personal }), personal ? Promise.resolve(null) : listUsersAndInvites()]);
     const progress = personal
       ? await listProgress(options.uid)
       : (await Promise.all(directory.users.map((user) => listProgress(user.id)))).flat();
     const unitsBySubject = new Map();
     await Promise.all(subjects.map(async (subject) => {
-      unitsBySubject.set(subject.id, await listUnits(subject.id));
+      unitsBySubject.set(subject.id, await listUnits(subject.id, { publishedOnly: personal }));
     }));
     const subjectMap = new Map(subjects.map((item) => [item.id, item]));
     const unitMap = new Map();
@@ -176,7 +176,46 @@ async function renderAnalytics(root, context, options = {}) {
       return attempts ? Math.round((correct / attempts) * 100) : 0;
     };
     const rowHtml = rows.map((item) => `<article class="analytics-row"><div class="analytics-copy"><span>${escapeHtml(item.subject)} / ${escapeHtml(item.unit)}</span><strong>${escapeHtml(item.question)}</strong><small>${item.correct} / ${item.attempts}回正解</small></div><div class="analytics-rate"><b>${item.rate}%</b><span><i style="width:${item.rate}%"></i></span></div></article>`).join("");
-    root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}<section class="analytics-summary"><article><span>${personal ? "解答単元" : "参加学生"}</span><strong>${personal ? progress.length : users.size}</strong><small>${personal ? "単元" : "人"}</small></article><article><span>${personal ? "正答率" : "全体正答率"}</span><strong>${overall}</strong><small>%</small></article><article><span>総解答数</span><strong>${totalAttempts}</strong><small>回</small></article><article><span>要復習</span><strong>${rows.filter((item) => item.rate < 60).length}</strong><small>問</small></article></section><section class="panel"><div class="panel-header"><div><h2>形式別の正答率</h2><p>穴埋めと選択問題の理解度を比較します。</p></div></div><div class="type-chart"><div><b>穴埋め</b><span><i style="width:${typeRate(fillRows)}%"></i></span><strong>${typeRate(fillRows)}%</strong></div><div><b>選択問題</b><span><i style="width:${typeRate(quizRows)}%"></i></span><strong>${typeRate(quizRows)}%</strong></div></div></section><section class="panel"><div class="panel-header"><div><h2>問題ごとの正答率</h2><p>正答率の低い問題から表示しています。</p></div><span class="chip">${rows.length}問</span></div>${rowHtml || `<div class="empty"><strong>問題別データはまだありません</strong><p>問題へ解答すると自動集計されます。</p></div>`}${legacySessions ? `<p class="hint">旧形式の学習記録 ${legacySessions}件は、問題単位の内訳がないため全体集計に含めていません。</p>` : ""}</section>`;
+    const aggregate = (items) => {
+      const attempts = items.reduce((sum, item) => sum + item.attempts, 0);
+      const correct = items.reduce((sum, item) => sum + item.correct, 0);
+      return { attempts, correct, rate: attempts ? Math.round((correct / attempts) * 100) : 0 };
+    };
+    const ring = (value, label) => `<span class="progress-ring analytics-progress-ring" style="--progress:${value}" role="img" aria-label="${escapeHtml(label)} ${value}%"><span><b>${value}</b><small>%</small></span></span>`;
+    const subjectSummaries = subjects.map((subject) => {
+      const relatedRows = rows.filter((item) => item.subjectId === subject.id);
+      const result = aggregate(relatedRows);
+      const entries = progress.filter((entry) => entry.subjectId === subject.id);
+      const units = unitsBySubject.get(subject.id) || [];
+      const total = units.reduce((sum, unit) => sum + Math.max((unit.fill_blank || []).length + (unit.quiz || []).length, Number(entries.find((entry) => entry.unitId === unit.id)?.total || 0)), 0);
+      const answered = units.reduce((sum, unit) => {
+        const entry = entries.find((item) => item.unitId === unit.id) || {};
+        const unitTotal = Math.max((unit.fill_blank || []).length + (unit.quiz || []).length, Number(entry.total || 0));
+        return sum + Math.min(unitTotal, Math.max(Number(entry.answered || 0), Object.keys(entry.questionStats || {}).length));
+      }, 0);
+      return { ...result, subject, answered, total, progressRate: total ? Math.min(100, Math.round((answered / total) * 100)) : 0 };
+    });
+    const unitSummaries = subjects.flatMap((subject) => (unitsBySubject.get(subject.id) || []).map((unit) => {
+      const relatedRows = rows.filter((item) => item.subjectId === subject.id && item.unitId === unit.id);
+      const result = aggregate(relatedRows);
+      const entry = progress.find((item) => item.subjectId === subject.id && item.unitId === unit.id) || {};
+      const total = Math.max((unit.fill_blank || []).length + (unit.quiz || []).length, Number(entry.total || 0));
+      const answered = Math.min(total, Math.max(Number(entry.answered || 0), Object.keys(entry.questionStats || {}).length));
+      return { ...result, subject, unit, answered, total, progressRate: total ? Math.min(100, Math.round((answered / total) * 100)) : 0 };
+    }));
+    const summaryHtml = `<section class="analytics-summary"><article><span>${personal ? "解答単元" : "参加学生"}</span><strong>${personal ? progress.filter((entry) => Number(entry.answered || 0) > 0 || Object.keys(entry.questionStats || {}).length).length : users.size}</strong><small>${personal ? "単元" : "人"}</small></article><article><span>${personal ? "正答率" : "全体正答率"}</span><strong>${overall}</strong><small>%</small></article><article><span>総解答数</span><strong>${totalAttempts}</strong><small>回</small></article><article><span>要復習</span><strong>${rows.filter((item) => item.rate < 60).length}</strong><small>問</small></article></section>`;
+    const overallHtml = `${summaryHtml}<section class="panel"><div class="panel-header"><div><h2>形式別の正答率</h2><p>穴埋めと選択問題の理解度を比較します。</p></div></div><div class="type-chart"><div><b>穴埋め</b><span><i style="width:${typeRate(fillRows)}%"></i></span><strong>${typeRate(fillRows)}%</strong></div><div><b>選択問題</b><span><i style="width:${typeRate(quizRows)}%"></i></span><strong>${typeRate(quizRows)}%</strong></div></div></section><section class="panel"><div class="panel-header"><div><h2>問題ごとの正答率</h2><p>正答率の低い問題から表示しています。</p></div><span class="chip">${rows.length}問</span></div>${rowHtml || `<div class="empty"><strong>問題別データはまだありません</strong><p>問題へ解答すると自動集計されます。</p></div>`}${legacySessions ? `<p class="hint">旧形式の学習記録 ${legacySessions}件は、問題単位の内訳がないため全体集計に含めていません。</p>` : ""}</section>`;
+    const subjectHtml = `<section class="panel"><div class="panel-header"><div><h2>科目ごとの分析</h2><p>解答進捗と正答率を科目単位で比較します。</p></div></div><div class="analysis-card-grid">${subjectSummaries.map((item) => `<article class="analysis-progress-card"><div class="analysis-progress-heading"><div><strong>${escapeHtml(item.subject.name)}</strong><small>${item.attempts}回解答・${item.correct}回正解</small></div>${ring(item.rate, `${item.subject.name} 正答率`)}</div><div class="analysis-metric"><span>解答進捗</span><b>${item.progressRate}%</b></div><span class="mini-progress"><i style="width:${item.progressRate}%"></i></span><p>${item.answered} / ${item.total}問を解答</p></article>`).join("") || `<div class="empty">科目がまだありません。</div>`}</div></section>`;
+    const unitHtml = `<section class="panel"><div class="panel-header"><div><h2>単元ごとの分析</h2><p>単元ごとの理解度と残り問題を確認します。</p></div></div><div class="analysis-unit-list">${unitSummaries.map((item) => `<article class="analysis-unit-row"><div class="analytics-copy"><span>${escapeHtml(item.subject.name)}</span><strong>${escapeHtml(item.unit.name)}</strong><small>${item.correct} / ${item.attempts}回正解・${item.answered} / ${item.total}問解答</small></div>${ring(item.rate, `${item.unit.name} 正答率`)}<div class="analysis-unit-bars"><div><span>解答進捗</span><b>${item.progressRate}%</b></div><span class="mini-progress"><i style="width:${item.progressRate}%"></i></span><div><span>正答率</span><b>${item.rate}%</b></div><span class="mini-progress accuracy"><i style="width:${item.rate}%"></i></span></div></article>`).join("") || `<div class="empty">単元がまだありません。</div>`}</div></section>`;
+    const switchHtml = personal ? `<div class="analysis-view-switch" role="tablist" aria-label="分析表示"><button class="active" data-analysis-view="overall" type="button">全体</button><button data-analysis-view="subjects" type="button">科目ごと</button><button data-analysis-view="units" type="button">単元ごと</button></div>` : "";
+    root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}${switchHtml}<div id="analyticsView">${overallHtml}</div>`;
+    if (personal) {
+      const views = { overall: overallHtml, subjects: subjectHtml, units: unitHtml };
+      root.querySelectorAll("[data-analysis-view]").forEach((button) => button.addEventListener("click", () => {
+        root.querySelectorAll("[data-analysis-view]").forEach((item) => item.classList.toggle("active", item === button));
+        root.querySelector("#analyticsView").innerHTML = views[button.dataset.analysisView] || overallHtml;
+      }));
+    }
     if (options.back) bindAdminBack(root, options.back);
   } catch (error) {
     root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}<section class="panel"><div class="empty"><strong>分析データを読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryAnalytics" class="primary-button" type="button">再読み込み</button></div></section>`;
@@ -240,9 +279,21 @@ async function renderUnitManager(root, context, category, subject) {
 async function renderReports(root, context) {
   root.innerHTML = `${adminHeader("問題の修正依頼", "学生から届いた報告", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>修正依頼</h2><p>学生が「違います」から送信した内容です。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
-  const snapshot = await getDocs(query(collection(db, COLLECTIONS.reports), orderBy("createdAt", "desc")));
-  const reports = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-  root.querySelector("#reportList").innerHTML = reports.length ? reports.map((item) => `<article class="admin-row"><div><strong>${escapeHtml(item.reason)}</strong><p>${escapeHtml(item.question)}</p><p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p></div><span class="chip">${escapeHtml(item.status || "open")}</span></article>`).join("") : `<div class="empty">修正依頼はありません。</div>`;
+  const reportList = root.querySelector("#reportList");
+  try {
+    let snapshot;
+    try {
+      snapshot = await getDocs(query(collection(db, COLLECTIONS.reports), orderBy("createdAt", "desc")));
+    } catch (orderedError) {
+      snapshot = await getDocs(collection(db, COLLECTIONS.reports));
+    }
+    const reports = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => Number(b.createdAt?.seconds || 0) - Number(a.createdAt?.seconds || 0));
+    reportList.innerHTML = reports.length ? reports.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p>${escapeHtml(item.question)}</p><p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><span class="chip">${escapeHtml(item.status || "open")}</span></article>`).join("") : `<div class="empty">修正依頼はありません。</div>`;
+  } catch (error) {
+    reportList.innerHTML = `<div class="empty"><strong>修正依頼を読み込めませんでした</strong><p>${escapeHtml(error.message || "権限と通信状態を確認してください。")}</p><button id="retryReports" class="primary-button" type="button">再読み込み</button></div>`;
+    root.querySelector("#retryReports")?.addEventListener("click", () => renderReports(root, context));
+  }
 }
 
 export function parseUnitJson(text) {

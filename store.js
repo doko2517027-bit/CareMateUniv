@@ -125,8 +125,11 @@ export async function listProgress(uid) {
   const snapshot = await getDocs(collection(db, COLLECTIONS.users, uid, "progress"));
   return snapshot.docs.map((item) => ({ id: item.id, uid, ...item.data() }));
 }
-export async function reportQuestion({ uid, subjectId, unitId, type, index, reason, question }) {
-  await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, subjectId, unitId, type, index, reason: safeText(reason, 80), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp() });
+export async function reportQuestion({ uid, studentNumber = "", reporterName = "", subjectId, unitId, type, index, reason, question }) {
+  const reference = await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, reporterStudentNumber: safeText(studentNumber, 7), reporterName: safeText(reporterName, 80), subjectId, unitId, type, index, reason: safeText(reason, 80), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp() });
+  const confirmation = await getDoc(reference);
+  if (!confirmation.exists()) throw new Error("修正依頼の保存を確認できませんでした。もう一度お試しください。");
+  return reference.id;
 }
 
 export async function listUsersAndInvites() {

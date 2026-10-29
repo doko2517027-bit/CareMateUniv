@@ -4,9 +4,29 @@ import { getProgress, listCategories, listSubjects, listUnits, reportQuestion, s
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
 function percent(progress = {}) {
-  const answered = Number(progress.answered || 0);
+  const answered = Math.max(Number(progress.answered || 0), Object.keys(progress.questionStats || {}).length);
   const total = Number(progress.total || 0);
   return total > 0 ? Math.min(100, Math.round((answered / total) * 100)) : 0;
+}
+
+function progressRing(value, label = "進捗") {
+  const safe = Math.max(0, Math.min(100, Number(value) || 0));
+  return `<span class="progress-ring" style="--progress:${safe}" role="img" aria-label="${escapeHtml(label)} ${safe}%"><span><b>${safe}</b><small>%</small></span></span>`;
+}
+
+async function loadSubjectOverview(subjects) {
+  const entries = await Promise.all(subjects.map(async (subject) => {
+    const units = await listUnits(subject.id, { publishedOnly: true });
+    const progressItems = await Promise.all(units.map((unit) => getProgress(auth.currentUser.uid, subject.id, unit.id)));
+    const totals = units.reduce((result, unit, index) => {
+      const saved = progressItems[index] || {};
+      const questionTotal = allQuestions(unit).length || Number(saved.total || 0);
+      const answered = Math.min(questionTotal, Math.max(Number(saved.answered || 0), Object.keys(saved.questionStats || {}).length));
+      return { answered: result.answered + answered, total: result.total + questionTotal };
+    }, { answered: 0, total: 0 });
+    return { subject, units, progressItems, value: totals.total ? Math.round((totals.answered / totals.total) * 100) : 0, ...totals };
+  }));
+  return new Map(entries.map((entry) => [entry.subject.id, entry]));
 }
 
 export async function renderTestHome(root, context) {
@@ -17,20 +37,34 @@ export async function renderTestHome(root, context) {
     grid.innerHTML = `<div class="empty"><strong>公開中の問題はまだありません</strong><p>管理者が問題を公開すると、ここに表示されます。</p></div>`;
     return;
   }
+  const overview = await loadSubjectOverview(subjects);
   const available = categories.filter((category) => subjects.some((subject) => subject.categoryId === category.id));
   const unclassified = subjects.filter((subject) => !categories.some((category) => category.id === subject.categoryId));
-  const entries = [...available.map((category) => ({ ...category, count: subjects.filter((subject) => subject.categoryId === category.id).length })), ...(unclassified.length ? [{ id: "__other__", name: "その他", count: unclassified.length }] : [])];
-  grid.innerHTML = entries.map((category) => `<button class="catalog-navigation-card" data-category="${escapeHtml(category.id)}" type="button"><span class="catalog-icon">📚</span><span><strong>${escapeHtml(category.name)}</strong><small>${category.count}科目</small></span><i>›</i></button>`).join("");
+  const entries = [...available.map((category) => ({ ...category, items: subjects.filter((subject) => subject.categoryId === category.id) })), ...(unclassified.length ? [{ id: "__other__", name: "その他", items: unclassified }] : [])]
+    .map((category) => {
+      const totals = category.items.reduce((result, subject) => {
+        const item = overview.get(subject.id) || {};
+        return { answered: result.answered + Number(item.answered || 0), total: result.total + Number(item.total || 0) };
+      }, { answered: 0, total: 0 });
+      return { ...category, count: category.items.length, value: totals.total ? Math.round((totals.answered / totals.total) * 100) : 0 };
+    });
+  grid.innerHTML = entries.map((category) => `<button class="catalog-navigation-card progress-navigation-card" data-category="${escapeHtml(category.id)}" type="button"><span class="catalog-icon">📚</span><span><strong>${escapeHtml(category.name)}</strong><small>${category.count}科目・学習進捗 ${category.value}%</small><span class="mini-progress"><i style="width:${category.value}%"></i></span></span>${progressRing(category.value, category.name)}<i>›</i></button>`).join("");
   grid.querySelectorAll("[data-category]").forEach((button) => button.addEventListener("click", () => {
     const selected = entries.find((item) => item.id === button.dataset.category);
     const filtered = selected.id === "__other__" ? unclassified : subjects.filter((subject) => subject.categoryId === selected.id);
-    renderCategory(root, context, selected, filtered);
+    renderCategory(root, context, selected, filtered, overview);
   }));
 }
 
-function renderCategory(root, context, category, subjects) {
-  root.innerHTML = `<div class="study-header"><button class="back-button" type="button" aria-label="区分一覧へ戻る">‹</button><div><span class="brand-mini">CATEGORY</span><h2>${escapeHtml(category.name)}</h2><p>${subjects.length}科目</p></div></div><section class="panel"><div class="panel-header"><div><h2>科目一覧</h2><p>科目を選ぶと単元一覧へ移動します。</p></div></div><div id="subjectGrid" class="catalog-navigation">${subjects.map((subject) => `<button class="catalog-navigation-card" data-subject="${escapeHtml(subject.id)}" type="button"><span class="catalog-icon">📖</span><span><strong>${escapeHtml(subject.name)}</strong><small>単元と問題を見る</small></span><i>›</i></button>`).join("")}</div></section>`;
+async function renderCategory(root, context, category, subjects, knownOverview = null) {
+  root.innerHTML = `<div class="study-header"><button class="back-button" type="button" aria-label="区分一覧へ戻る">‹</button><div><span class="brand-mini">CATEGORY</span><h2>${escapeHtml(category.name)}</h2><p>${subjects.length}科目</p></div></div><section class="panel"><div class="panel-header"><div><h2>科目一覧</h2><p>科目ごとの解答進捗を確認できます。</p></div></div><div id="subjectGrid" class="catalog-navigation"><p class="empty">進捗を読み込み中…</p></div></section>`;
   root.querySelector(".back-button").addEventListener("click", () => renderTestHome(root, context));
+  const overview = knownOverview || await loadSubjectOverview(subjects);
+  const subjectGrid = root.querySelector("#subjectGrid");
+  subjectGrid.innerHTML = subjects.map((subject) => {
+    const item = overview.get(subject.id) || { value: 0, units: [] };
+    return `<button class="catalog-navigation-card progress-navigation-card" data-subject="${escapeHtml(subject.id)}" type="button"><span class="catalog-icon">📖</span><span><strong>${escapeHtml(subject.name)}</strong><small>${item.units.length}単元・解答進捗 ${item.value}%</small><span class="mini-progress"><i style="width:${item.value}%"></i></span></span>${progressRing(item.value, subject.name)}<i>›</i></button>`;
+  }).join("");
   root.querySelectorAll("[data-subject]").forEach((button) => button.addEventListener("click", () => {
     const subject = subjects.find((item) => item.id === button.dataset.subject);
     subject._navigationParent = { category, subjects };
@@ -48,7 +82,9 @@ async function renderSubject(root, context, subject, parent = null) {
   if (!units.length) { grid.innerHTML = `<div class="empty">公開中の単元はまだありません。</div>`; return; }
   grid.innerHTML = units.map((unit, index) => {
     const value = percent(progressItems[index]);
-    return `<article class="card unit-card"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div><div class="progress-track" aria-label="進捗 ${value}%"><span style="width:${value}%"></span></div><div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
+    const total = Number(progressItems[index]?.total || allQuestions(unit).length);
+    const answered = Math.min(total, Math.max(Number(progressItems[index]?.answered || 0), Object.keys(progressItems[index]?.questionStats || {}).length));
+    return `<article class="card unit-card"><div class="unit-progress-heading"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div>${progressRing(value, unit.name)}</div><div class="progress-summary"><strong>解答進捗 ${value}%</strong><span>${answered} / ${total}問</span></div><div class="progress-track" aria-label="進捗 ${value}%"><span style="width:${value}%"></span></div><div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
   }).join("");
   grid.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
     const unit = units[Number(button.dataset.index)];
@@ -93,8 +129,15 @@ async function showReport(context, subject, unit, item) {
   if (!reason) return;
   const confirmed = await context.confirm(`${reason}として管理者へ送信しますか？`);
   if (!confirmed) return;
-  await reportQuestion({ uid: auth.currentUser.uid, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, reason, question: item.question });
-  context.toast("管理者へ送信しました。");
+  try {
+    context.loading(true, "修正依頼を送信中…");
+    await reportQuestion({ uid: auth.currentUser.uid, studentNumber: context.profile?.studentNumber, reporterName: context.profile?.name, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, reason, question: item.question });
+    context.toast("管理者へ修正依頼を送信しました。");
+  } catch (error) {
+    context.toast(error?.message || "修正依頼を送信できませんでした。", true);
+  } finally {
+    context.loading(false);
+  }
 }
 
 function renderQuestionList(root, context, subject, unit) {
@@ -124,8 +167,10 @@ async function renderQuestions(root, context, subject, unit) {
     const isMultiple = isQuiz && correctAnswers.length > 1;
     const fillAnswers = !isQuiz && Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
     let locked = false;
-    root.innerHTML = `${pageHeader(subject, unit, "問題演習")}<section class="panel question-box"><span class="question-number">${position + 1} / ${items.length}・${item.kind}</span><h2 class="question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<div class="question-help">${isMultiple ? "当てはまるものをすべて選んでください" : "答えを1つ選んでください"}</div><div class="choice-list">${item.choices.map((choice, index) => `<button class="choice-button" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}.</b> ${escapeHtml(choice)}</button>`).join("")}</div>${isMultiple ? `<button id="answerButton" class="primary-button" type="button" disabled>選択した答えを判定</button>` : ""}` : `<div class="fill-answer-list">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div><button id="answerButton" class="primary-button" type="button">答え合わせ</button>`}<div id="resultArea"></div></section>`;
+    const progressValue = Math.round(((position + 1) / items.length) * 100);
+    root.innerHTML = `${pageHeader(subject, unit, "問題演習")}<div class="test-progress" aria-label="${position + 1}問目 / ${items.length}問"><span style="width:${progressValue}%"></span></div><section class="panel question-box test-focus-card"><div class="test-context-line"><b>${escapeHtml(subject.name)}</b><span>›</span><span>${escapeHtml(unit.name)}</span></div><div class="test-question-heading"><span class="test-content-label">問題</span><div class="test-question-number">${position + 1} / ${items.length}</div></div><h2 class="question-text test-question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">選択肢</span><small>${isMultiple ? "当てはまるものをすべて選択" : "1つ選択"}</small></div><div class="choice-list test-choice-list">${item.choices.map((choice, index) => `<button class="choice-button test-choice" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}</b><span>${escapeHtml(choice)}</span></button>`).join("")}</div></section>${isMultiple ? `<button id="answerButton" class="primary-button full-action" type="button" disabled>選択した答えを判定</button>` : ""}` : `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">解答</span><small>${fillAnswers.length > 1 ? `${fillAnswers.length}か所すべて入力` : "答えを入力"}</small></div><div class="fill-answer-list test-fill-inputs">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div></section><button id="answerButton" class="primary-button full-action" type="button">答え合わせ</button>`}<div id="resultArea"></div><button id="questionReportButton" class="test-report-link" type="button">違います</button></section>`;
     bindBack(root, context, subject);
+    root.querySelector("#questionReportButton").addEventListener("click", () => showReport(context, subject, unit, item));
     const submit = async (given) => {
       if (locked) return;
       locked = true;
@@ -158,8 +203,7 @@ async function renderQuestions(root, context, subject, unit) {
       }
       if (isQuiz) root.querySelectorAll(".choice-button").forEach((button) => { button.disabled = true; const value = Number(button.dataset.choice); if (correctAnswers.includes(value)) button.classList.add("correct"); else if (selected.includes(value)) button.classList.add("wrong"); });
       const result = root.querySelector("#resultArea");
-      result.innerHTML = `<div class="answer-panel"><strong>${accepted ? "正解" : "不正解"}</strong><p>答え：${escapeHtml(item.displayAnswer)}</p><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><div class="inline-actions"><button id="reportButton" class="secondary-button" type="button">違います</button><button id="nextButton" class="primary-button" type="button">${position + 1 < items.length ? "次の問題" : "結果を見る"}</button></div>`;
-      result.querySelector("#reportButton").addEventListener("click", () => showReport(context, subject, unit, item));
+      result.innerHTML = `<section class="test-result-panel ${accepted ? "is-correct" : "is-wrong"}"><div class="test-result-summary"><div class="test-mark" aria-hidden="true">${accepted ? "○" : "×"}</div><div><strong>${accepted ? "正解" : "不正解"}</strong><small>${accepted ? "その調子です" : "答えと解説を確認しましょう"}</small></div></div><div class="answer-panel test-answer-explanation"><span class="test-content-label">答え</span><p>${escapeHtml(item.displayAnswer)}</p><span class="test-content-label">解説</span><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><button id="nextButton" class="primary-button full-action" type="button">${position + 1 < items.length ? "次の問題" : "結果を見る"}</button></section>`;
       result.querySelector("#nextButton").addEventListener("click", async () => {
         await saveProgress(auth.currentUser.uid, subject.id, unit.id, { position: position + 1 < items.length ? position + 1 : 0, answered: Math.min(items.length, Number(oldProgress.answered || 0) + answers.length), total: items.length, lastScore: answers.filter(Boolean).length });
         if (++position < items.length) show(); else renderResult();
