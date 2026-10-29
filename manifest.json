@@ -1,0 +1,9 @@
+{
+  "name": "CareMateUniv",
+  "short_name": "CareMateUniv",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f6fb",
+  "theme_color": "#5b4bdb",
+  "icons": []
+}
