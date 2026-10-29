@@ -1,0 +1,35 @@
+.intro-splash{position:fixed;inset:0;width:100%;height:100vh;height:100dvh;z-index:10001;overflow:hidden;isolation:isolate;color:#f3ffff;background:#071925;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;animation:cmu-splash-leave .6s 4.9s both}
+.intro-splash[hidden]{display:none!important}
+.intro-splash::before{content:"";position:absolute;inset:-30%;z-index:0;background:radial-gradient(ellipse at 18% 29%,rgba(7,190,187,.31),transparent 39%),radial-gradient(ellipse at 83% 74%,rgba(101,110,255,.31),transparent 43%),radial-gradient(ellipse at 50% 54%,rgba(15,67,78,.69),transparent 68%);animation:cmu-ambient 6.4s ease-in-out both}
+.intro-splash::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;background:linear-gradient(90deg,rgba(3,15,26,.38),transparent 48%,rgba(3,15,26,.27)),radial-gradient(ellipse at center,transparent 14%,rgba(3,11,20,.56) 100%);opacity:0;animation:cmu-vignette .8s 3.25s forwards}
+.intro-grid{position:absolute;z-index:1;inset:0;opacity:.19;background-image:linear-gradient(rgba(123,231,231,.17) 1px,transparent 1px),linear-gradient(90deg,rgba(123,231,231,.17) 1px,transparent 1px);background-size:72px 72px;-webkit-mask-image:radial-gradient(ellipse at center,#000,transparent 79%);mask-image:radial-gradient(ellipse at center,#000,transparent 79%);animation:cmu-grid-out .6s 2.5s forwards}
+.intro-glow{position:absolute;z-index:1;width:30vmax;height:30vmax;border:1px solid rgba(132,245,236,.19);border-radius:50%;pointer-events:none;animation:cmu-orbit 5s ease-out both}
+.intro-glow-one{top:-19vmax;left:-11vmax}
+.intro-glow-two{right:-16vmax;bottom:-21vmax;animation-direction:reverse}
+.intro-copy{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;animation:cmu-copy-out .55s 2.47s forwards}
+.intro-first{display:flex;justify-content:center;align-items:baseline;white-space:nowrap;gap:.2em;font-size:clamp(2.3rem,6.9vw,7.5rem);font-weight:850;letter-spacing:-.065em;line-height:1.3;text-shadow:0 6px 35px rgba(0,0,0,.12)}
+.intro-first-piece{display:inline-block;opacity:0;transform:translateY(34px);filter:blur(14px);animation:cmu-words-in .65s .38s cubic-bezier(.2,.9,.25,1) forwards}
+.intro-second-piece{color:#77f0e5;animation-delay:1.13s}
+.intro-second{margin:.9em 0 0;font-size:clamp(1.02rem,2.55vw,2.65rem);font-weight:650;letter-spacing:.11em;line-height:1.7;opacity:0;transform:translateY(19px);animation:cmu-words-in .7s 1.79s cubic-bezier(.2,.9,.25,1) forwards}
+.intro-sequence{position:absolute;inset:0;z-index:2;pointer-events:none}
+.intro-fragment{position:absolute;inset:0;background:url("./assets/cmu-icon.png") center center/cover no-repeat;clip-path:inset(0 var(--cut-right) 0 var(--cut-left));opacity:0;transform:translate3d(var(--fly-x),var(--fly-y),0) rotate(var(--fly-rotate)) scale(1.12);filter:blur(16px) saturate(1.4);will-change:transform,opacity,filter;animation:cmu-piece-lock .9s var(--enter) cubic-bezier(.16,1,.3,1) forwards}
+.intro-mark{position:absolute;z-index:5;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:28px;text-align:center;pointer-events:none}
+.intro-rule{width:min(110px,25vw);height:3px;margin-bottom:27px;background:linear-gradient(90deg,#3fe1d7,#c0fcf2);border-radius:10px;transform:scaleX(0);animation:cmu-rule-in .5s 3.75s cubic-bezier(.16,1,.3,1) forwards}
+.intro-brand-name{display:block;max-width:100%;font-size:clamp(2.55rem,7.8vw,8.1rem);font-weight:870;letter-spacing:-.065em;line-height:1.15;color:#fff;opacity:0;transform:translateY(28px) scale(.96);text-shadow:0 8px 55px rgba(0,13,29,.7),0 2px 8px rgba(0,13,29,.48);animation:cmu-brand-in .75s 3.89s cubic-bezier(.2,.9,.25,1) forwards}
+.intro-brand-sub{display:block;margin-top:16px;color:#c2f8f4;font-size:clamp(.62rem,1.32vw,1.08rem);font-weight:700;letter-spacing:.28em;text-shadow:0 2px 15px rgba(0,13,29,.85);opacity:0;animation:cmu-sub-in .5s 4.2s forwards}
+.intro-skip{position:absolute;z-index:8;right:max(19px,env(safe-area-inset-right));bottom:max(22px,env(safe-area-inset-bottom));min-height:40px;padding:9px 15px;border-radius:999px;border:1px solid rgba(230,255,255,.39);background:rgba(5,24,35,.3);color:#fff;cursor:pointer;font:inherit;font-size:12px;font-weight:700;letter-spacing:.07em;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.intro-skip:focus-visible{outline:3px solid #79fff1;outline-offset:3px}
+.intro-splash.is-skipping{animation:cmu-splash-leave .26s both!important}
+@keyframes cmu-words-in{to{opacity:1;transform:translateY(0);filter:blur(0)}}
+@keyframes cmu-copy-out{to{opacity:0;transform:translateY(-17px);filter:blur(9px)}}
+@keyframes cmu-piece-lock{to{opacity:.94;transform:translate3d(0,0,0) rotate(0) scale(1);filter:blur(0) saturate(1)}}
+@keyframes cmu-rule-in{to{transform:scaleX(1)}}
+@keyframes cmu-brand-in{to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes cmu-sub-in{to{opacity:1}}
+@keyframes cmu-vignette{to{opacity:1}}
+@keyframes cmu-grid-out{to{opacity:0}}
+@keyframes cmu-ambient{50%{transform:translate3d(1.8%,-1%,0) scale(1.05)}to{transform:scale(1.1)}}
+@keyframes cmu-orbit{to{transform:scale(1.8) rotate(25deg);opacity:0}}
+@keyframes cmu-splash-leave{0%{opacity:1;visibility:visible}99%{opacity:0;visibility:visible}100%{opacity:0;visibility:hidden;pointer-events:none}}
+@media(max-width:540px){.intro-first{font-size:clamp(2rem,8.4vw,3.65rem);gap:.06em}.intro-second{font-size:clamp(1rem,4.1vw,1.4rem);letter-spacing:.02em}.intro-brand-name{font-size:clamp(2.1rem,10vw,3.7rem)}.intro-brand-sub{font-size:.65rem;letter-spacing:.19em}}
+@media(prefers-reduced-motion:reduce){.intro-splash{animation:cmu-splash-leave .18s .35s forwards}.intro-splash::before,.intro-splash::after,.intro-grid,.intro-glow,.intro-copy,.intro-first-piece,.intro-second,.intro-fragment,.intro-rule,.intro-brand-name,.intro-brand-sub{animation:none!important}.intro-copy{display:none}.intro-sequence{opacity:.55}.intro-fragment{opacity:1;transform:none;filter:none}.intro-brand-name,.intro-brand-sub{opacity:1;transform:none}.intro-rule{transform:scaleX(1)}}

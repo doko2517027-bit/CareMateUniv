@@ -13,11 +13,39 @@
   <link rel="icon" type="image/png" href="assets/cmu-icon.png">
   <link rel="apple-touch-icon" href="assets/cmu-icon.png">
   <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="intro.css?v=1">
 </head>
 <body>
   <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
     <span class="spinner" aria-hidden="true"></span>
     <strong id="loadingMessage">読み込み中…</strong>
+  </div>
+
+  <!-- Full-screen launch animation; the existing logo assembles as the background. -->
+  <div id="introSplash" class="intro-splash" aria-label="CareMateUniv 起動中">
+    <div class="intro-grid" aria-hidden="true"></div>
+    <div class="intro-glow intro-glow-one" aria-hidden="true"></div>
+    <div class="intro-glow intro-glow-two" aria-hidden="true"></div>
+    <div class="intro-copy">
+      <div class="intro-first"><span class="intro-first-piece">学びを、</span><span class="intro-first-piece intro-second-piece">つなぐ。</span></div>
+      <p class="intro-second">学習を、もっと身近に。</p>
+    </div>
+    <div class="intro-sequence" aria-hidden="true">
+      <span class="intro-fragment" style="--cut-left:0%;--cut-right:87.5%;--fly-x:-34vw;--fly-y:-18vh;--fly-rotate:-13deg;--enter:2.55s"></span>
+      <span class="intro-fragment" style="--cut-left:12.5%;--cut-right:75%;--fly-x:28vw;--fly-y:-25vh;--fly-rotate:9deg;--enter:2.63s"></span>
+      <span class="intro-fragment" style="--cut-left:25%;--cut-right:62.5%;--fly-x:-32vw;--fly-y:27vh;--fly-rotate:-7deg;--enter:2.71s"></span>
+      <span class="intro-fragment" style="--cut-left:37.5%;--cut-right:50%;--fly-x:13vw;--fly-y:-42vh;--fly-rotate:8deg;--enter:2.79s"></span>
+      <span class="intro-fragment" style="--cut-left:50%;--cut-right:37.5%;--fly-x:-12vw;--fly-y:33vh;--fly-rotate:-9deg;--enter:2.87s"></span>
+      <span class="intro-fragment" style="--cut-left:62.5%;--cut-right:25%;--fly-x:35vw;--fly-y:-19vh;--fly-rotate:13deg;--enter:2.95s"></span>
+      <span class="intro-fragment" style="--cut-left:75%;--cut-right:12.5%;--fly-x:-24vw;--fly-y:30vh;--fly-rotate:-11deg;--enter:3.03s"></span>
+      <span class="intro-fragment" style="--cut-left:87.5%;--cut-right:0%;--fly-x:33vw;--fly-y:18vh;--fly-rotate:7deg;--enter:3.11s"></span>
+    </div>
+    <div class="intro-mark" aria-hidden="true">
+      <span class="intro-rule"></span>
+      <strong class="intro-brand-name">CareMateUniv</strong>
+      <span class="intro-brand-sub">UNIVERSITY LEARNING</span>
+    </div>
+    <button id="introSkip" class="intro-skip" type="button">スキップ ›</button>
   </div>
 
   <main id="authScreen" class="auth-screen" hidden>
@@ -111,6 +139,7 @@
 
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
+  <script defer src="intro.js?v=1"></script>
   <script type="module" src="app.js?v=7"></script>
 </body>
 </html>
