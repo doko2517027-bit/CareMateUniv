@@ -6,7 +6,6 @@ import {
   createAdminInvite,
   deleteStudyUser,
   getUnit,
-  listAllProgress,
   listProgress,
   listCategories,
   listSubjects,
@@ -120,9 +119,10 @@ async function renderAnalytics(root, context, options = {}) {
   root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}<section class="panel"><div class="panel-header"><div><h2>${personal ? "自分の学習分析" : "学生全体の学習分析"}</h2><p>問題ごとの正答率、解答回数、苦手傾向を確認できます。</p></div><span class="chip">集計中</span></div><div class="empty">学習結果を読み込んでいます…</div></section>`;
   if (options.back) bindAdminBack(root, options.back);
   try {
-    const [subjects, allProgress, directory] = await Promise.all([listSubjects(), personal ? listProgress(options.uid) : listAllProgress(), personal ? Promise.resolve(null) : listUsersAndInvites()]);
-    const registeredUids = personal ? null : new Set(directory.users.map((item) => item.id));
-    const progress = personal ? allProgress : allProgress.filter((item) => registeredUids.has(item.uid));
+    const [subjects, directory] = await Promise.all([listSubjects(), personal ? Promise.resolve(null) : listUsersAndInvites()]);
+    const progress = personal
+      ? await listProgress(options.uid)
+      : (await Promise.all(directory.users.map((user) => listProgress(user.id)))).flat();
     const unitsBySubject = new Map();
     await Promise.all(subjects.map(async (subject) => {
       unitsBySubject.set(subject.id, await listUnits(subject.id));
