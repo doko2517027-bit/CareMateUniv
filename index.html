@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="assets/cmu-icon.png">
   <link rel="apple-touch-icon" href="assets/cmu-icon.png">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
@@ -105,12 +105,12 @@
       <button type="button" data-page="test" class="active"><span>📚</span><b>試験対策</b></button>
       <button type="button" data-page="analytics"><span>📊</span><b>学習分析</b></button>
       <button type="button" data-page="settings"><span>⚙</span><b>設定</b></button>
-      <button type="button" data-page="admin" id="adminNav" hidden><span>👑</span><b>管理</b></button>
+      <button type="button" data-page="admin" id="adminNav" hidden><span>👑</span><b>管理</b><i id="adminReportBadge" class="notification-count-badge" hidden>0</i></button>
     </nav>
   </div>
 
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>

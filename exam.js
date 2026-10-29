@@ -125,13 +125,11 @@ function allQuestions(unit) {
 }
 
 async function showReport(context, subject, unit, item) {
-  const reason = await context.choose("どこが違いますか？", ["問題が違います", "答えが違います", "解説が違います"]);
-  if (!reason) return;
-  const confirmed = await context.confirm(`${reason}として管理者へ送信しますか？`);
-  if (!confirmed) return;
+  const report = await context.report();
+  if (!report) return;
   try {
     context.loading(true, "修正依頼を送信中…");
-    await reportQuestion({ uid: auth.currentUser.uid, studentNumber: context.profile?.studentNumber, reporterName: context.profile?.name, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, reason, question: item.question });
+    await reportQuestion({ uid: auth.currentUser.uid, studentNumber: context.profile?.studentNumber, reporterName: context.profile?.name, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, reason: report.reason, details: report.details, question: item.question });
     context.toast("管理者へ修正依頼を送信しました。");
   } catch (error) {
     context.toast(error?.message || "修正依頼を送信できませんでした。", true);

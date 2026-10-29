@@ -1,13 +1,12 @@
-import { collection, getDocs, orderBy, query } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { auth, db } from "./firebase.js";
+import { auth } from "./firebase.js";
 import {
-  COLLECTIONS,
   cancelInvite,
   createAdminInvite,
   deleteStudyUser,
   getUnit,
   listProgress,
   listCategories,
+  listQuestionReports,
   listSubjects,
   listUnits,
   listUsersAndInvites,
@@ -20,6 +19,7 @@ import {
   saveSubject,
   saveUnit,
   updateUserAccess,
+  updateQuestionReportStatus,
 } from "./store.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -39,11 +39,14 @@ function bindAdminBack(root, callback) {
 
 function renderAdminMenu(root, context) {
   const primary = context.profile?.studentNumber === "2510044";
-  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>管理メニュー</h2><p>行う作業を選んで専用画面へ移動します。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section><section class="admin-menu-grid"><button data-admin-page="tests" type="button"><span>📚</span><strong>テスト管理</strong><small>区分・科目・単元・問題</small><i>›</i></button><button data-admin-page="analytics" type="button"><span>📊</span><strong>全体の学習分析</strong><small>正答率・苦手問題・解答数</small><i>›</i></button><button data-admin-page="users" type="button"><span>👥</span><strong>ユーザー管理</strong><small>管理者と学生を分けて管理</small><i>›</i></button><button data-admin-page="reports" type="button"><span>✎</span><strong>修正依頼</strong><small>問題・答え・解説の報告</small><i>›</i></button></section>`;
+  const notificationAvailable = "Notification" in window;
+  const notificationGranted = notificationAvailable && Notification.permission === "granted";
+  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>管理メニュー</h2><p>行う作業を選んで専用画面へ移動します。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section>${notificationGranted ? "" : `<section class="admin-notification-banner"><div><strong>修正依頼の通知</strong><p>${notificationAvailable ? "通知を許可すると、新しい修正依頼をすぐ確認できます。" : "このブラウザは通知に対応していません。"}</p></div>${notificationAvailable ? `<button id="enableAdminNotifications" class="primary-button" type="button">通知を有効にする</button>` : ""}</section>`}<section class="admin-menu-grid"><button data-admin-page="tests" type="button"><span>📚</span><strong>テスト管理</strong><small>区分・科目・単元・問題</small><i>›</i></button><button data-admin-page="analytics" type="button"><span>📊</span><strong>全体の学習分析</strong><small>正答率・苦手問題・解答数</small><i>›</i></button><button data-admin-page="users" type="button"><span>👥</span><strong>ユーザー管理</strong><small>管理者と学生を分けて管理</small><i>›</i></button><button class="report-menu-button" data-admin-page="reports" type="button"><span>✎</span><span class="report-menu-copy"><strong>修正依頼</strong><small>問題・答え・解説の報告</small></span><em data-report-menu-badge class="notification-count-badge" ${context.reportCount ? "" : "hidden"}>${context.reportCount || 0}</em><i>›</i></button></section>`;
   root.querySelector('[data-admin-page="tests"]').onclick = () => renderTestManager(root, context);
   root.querySelector('[data-admin-page="analytics"]').onclick = () => renderAnalytics(root, context, { back: () => renderAdminMenu(root, context) });
   root.querySelector('[data-admin-page="users"]').onclick = () => renderUserManager(root, context);
   root.querySelector('[data-admin-page="reports"]').onclick = () => renderReports(root, context);
+  root.querySelector("#enableAdminNotifications")?.addEventListener("click", async () => { await context.enableAdminNotifications(); renderAdminMenu(root, context); });
 }
 
 async function renderUserManager(root, context) {
@@ -277,19 +280,32 @@ async function renderUnitManager(root, context, category, subject) {
 }
 
 async function renderReports(root, context) {
-  root.innerHTML = `${adminHeader("問題の修正依頼", "学生から届いた報告", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>修正依頼</h2><p>学生が「違います」から送信した内容です。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
+  root.innerHTML = `${adminHeader("問題の修正依頼", "学生・管理者から届いた報告", () => renderAdminMenu(root, context))}<div class="report-view-switch" role="tablist" aria-label="修正依頼の状態"><button class="active" data-report-view="open" type="button">未対応 <b id="openReportCount">0</b></button><button data-report-view="resolved" type="button">修正済み <b id="resolvedReportCount">0</b></button></div><section class="panel"><div class="panel-header"><div><h2 id="reportListTitle">未対応の修正依頼</h2><p>内容を確認し、修正後に「修正済みにする」を押してください。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const reportList = root.querySelector("#reportList");
   try {
-    let snapshot;
-    try {
-      snapshot = await getDocs(query(collection(db, COLLECTIONS.reports), orderBy("createdAt", "desc")));
-    } catch (orderedError) {
-      snapshot = await getDocs(collection(db, COLLECTIONS.reports));
-    }
-    const reports = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-      .sort((a, b) => Number(b.createdAt?.seconds || 0) - Number(a.createdAt?.seconds || 0));
-    reportList.innerHTML = reports.length ? reports.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p>${escapeHtml(item.question)}</p><p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><span class="chip">${escapeHtml(item.status || "open")}</span></article>`).join("") : `<div class="empty">修正依頼はありません。</div>`;
+    const reports = await listQuestionReports();
+    const openReports = reports.filter((item) => (item.status || "open") === "open");
+    const resolvedReports = reports.filter((item) => item.status === "resolved");
+    root.querySelector("#openReportCount").textContent = openReports.length;
+    root.querySelector("#resolvedReportCount").textContent = resolvedReports.length;
+    const showList = (view) => {
+      const resolved = view === "resolved";
+      const items = resolved ? resolvedReports : openReports;
+      root.querySelector("#reportListTitle").textContent = resolved ? "修正済み一覧" : "未対応の修正依頼";
+      root.querySelectorAll("[data-report-view]").forEach((button) => button.classList.toggle("active", button.dataset.reportView === view));
+      reportList.innerHTML = items.length ? items.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p class="report-question">${escapeHtml(item.question)}</p>${item.details ? `<div class="report-details"><b>修正内容</b><p>${escapeHtml(item.details)}</p></div>` : `<p class="hint">修正内容の入力はありません。</p>`}<p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><div class="report-actions"><span class="chip ${resolved ? "" : "danger"}">${resolved ? "修正済み" : "未対応"}</span><button class="${resolved ? "secondary-button" : "primary-button"} compact-button" data-report-status="${escapeHtml(item.id)}" data-next-status="${resolved ? "open" : "resolved"}" type="button">${resolved ? "未対応へ戻す" : "修正済みにする"}</button></div></article>`).join("") : `<div class="empty">${resolved ? "修正済みの依頼はありません。" : "未対応の修正依頼はありません。"}</div>`;
+      reportList.querySelectorAll("[data-report-status]").forEach((button) => button.addEventListener("click", async () => {
+        try {
+          context.loading(true, "修正依頼を更新中…");
+          await updateQuestionReportStatus(button.dataset.reportStatus, button.dataset.nextStatus);
+          context.toast(button.dataset.nextStatus === "resolved" ? "修正済み一覧へ移動しました。" : "未対応へ戻しました。");
+          await renderReports(root, context);
+        } catch (error) { context.toast(error.message || "状態を更新できませんでした。", true); } finally { context.loading(false); }
+      }));
+    };
+    root.querySelectorAll("[data-report-view]").forEach((button) => button.addEventListener("click", () => showList(button.dataset.reportView)));
+    showList("open");
   } catch (error) {
     reportList.innerHTML = `<div class="empty"><strong>修正依頼を読み込めませんでした</strong><p>${escapeHtml(error.message || "権限と通信状態を確認してください。")}</p><button id="retryReports" class="primary-button" type="button">再読み込み</button></div>`;
     root.querySelector("#retryReports")?.addEventListener("click", () => renderReports(root, context));

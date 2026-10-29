@@ -17,6 +17,7 @@ import {
 } from "./auth.js";
 import { renderTestHome } from "./exam.js";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js";
+import { watchOpenQuestionReports } from "./store.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -24,6 +25,8 @@ const screens = ["#authScreen", "#verifyScreen", "#activationScreen", "#adminPas
 let profile = null;
 let currentPage = "test";
 let toastTimer = null;
+let stopReportWatch = null;
+let knownOpenReportIds = new Set();
 
 function showOnly(selector) { screens.forEach((item) => { $(item).hidden = item !== selector; }); }
 function loading(show, message = "読み込み中…") { $("#loadingMessage").textContent = message; $("#loadingOverlay").hidden = !show; }
@@ -56,6 +59,31 @@ function chooseDialog(title, choices) {
     dialog.querySelectorAll("[data-select]").forEach((button) => button.addEventListener("click", () => done(choices[Number(button.dataset.select)])));
     dialog.onclose = () => resolve(null);
   });
+}
+function reportDialog() {
+  return new Promise((resolve) => {
+    const dialog = openDialog(`<form id="reportForm" class="form-stack report-form"><h2>何が違いますか？</h2><p class="hint">該当する項目を選び、必要なら修正内容を入力してください。</p><div class="report-reason-grid" role="group" aria-label="修正する項目"><button data-report-reason="問題が違います" type="button">問題が違います</button><button data-report-reason="答えが違います" type="button">答えが違います</button><button data-report-reason="解説が違います" type="button">解説が違います</button></div><label>修正内容（任意）<textarea name="details" rows="5" maxlength="1200" placeholder="どこが違うか、正しい内容などを入力できます"></textarea><small class="field-note">1,200文字まで</small></label><div class="inline-actions"><button id="reportCancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">管理者へ送信</button></div><p id="reportFormStatus" class="status"></p></form>`);
+    let reason = "";
+    const done = (value) => { dialog.onclose = null; closeDialog(); resolve(value); };
+    dialog.querySelectorAll("[data-report-reason]").forEach((button) => button.addEventListener("click", () => {
+      reason = button.dataset.reportReason;
+      dialog.querySelectorAll("[data-report-reason]").forEach((item) => item.classList.toggle("active", item === button));
+    }));
+    $("#reportCancel").onclick = () => done(null);
+    $("#reportForm").onsubmit = (event) => {
+      event.preventDefault();
+      if (!reason) { status($("#reportFormStatus"), "違う箇所を選択してください。", true); return; }
+      done({ reason, details: event.currentTarget.elements.details.value.trim() });
+    };
+    dialog.onclose = () => resolve(null);
+  });
+}
+async function enableAdminNotifications() {
+  if (!("Notification" in window)) { toast("このブラウザは通知に対応していません。", true); return "unsupported"; }
+  const permission = await Notification.requestPermission();
+  if (permission === "granted") toast("管理者向けの修正依頼通知を有効にしました。");
+  else toast("ブラウザ設定で通知を許可してください。", true);
+  return permission;
 }
 function formDialog(title, fields, submitLabel = "保存") {
   return new Promise((resolve) => {
@@ -239,7 +267,45 @@ function unitEditor(unit = {}, context, target = null) {
   });
 }
 
-const context = { loading, toast, show, confirm: confirmDialog, choose: chooseDialog, form: formDialog, unitEditor: (unit, target) => unitEditor(unit, context, target), profile: null };
+const context = { loading, toast, show, confirm: confirmDialog, choose: chooseDialog, report: reportDialog, enableAdminNotifications, form: formDialog, unitEditor: (unit, target) => unitEditor(unit, context, target), profile: null, reportCount: 0 };
+
+function updateReportBadge(count) {
+  const safe = Math.max(0, Number(count) || 0);
+  context.reportCount = safe;
+  const badge = $("#adminReportBadge");
+  badge.textContent = safe > 99 ? "99+" : String(safe);
+  badge.hidden = safe === 0;
+  document.querySelectorAll("[data-report-menu-badge]").forEach((item) => {
+    item.textContent = safe > 99 ? "99+" : String(safe);
+    item.hidden = safe === 0;
+  });
+}
+
+async function showAdminReportNotification(report) {
+  const title = "新しい修正依頼";
+  const body = `${report.reporterName || "学生"}：${report.reason || "問題の修正依頼"}`;
+  toast(`${title}が届きました。`);
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker?.ready;
+    if (registration) await registration.showNotification(title, { body, icon: "assets/cmu-icon.png", badge: "assets/cmu-icon.png", data: { url: `${location.origin}${location.pathname}?page=admin` }, tag: `study-report-${report.id}` });
+    else new Notification(title, { body, icon: "assets/cmu-icon.png", tag: `study-report-${report.id}` });
+  } catch (_) {}
+}
+
+function startAdminReportWatch() {
+  stopReportWatch?.();
+  stopReportWatch = null;
+  knownOpenReportIds = new Set();
+  if (profile?.role !== "admin") { updateReportBadge(0); return; }
+  let initialized = false;
+  stopReportWatch = watchOpenQuestionReports((reports) => {
+    updateReportBadge(reports.length);
+    if (initialized) reports.filter((report) => !knownOpenReportIds.has(report.id)).forEach(showAdminReportNotification);
+    knownOpenReportIds = new Set(reports.map((report) => report.id));
+    initialized = true;
+  }, (error) => console.warn("修正依頼の通知を更新できませんでした。", error));
+}
 
 function setTheme(theme) {
   const dark = theme === "dark";
@@ -281,8 +347,10 @@ async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
   $("#adminNav").hidden = profile.role !== "admin";
+  startAdminReportWatch();
   showOnly("#appShell");
-  await navigate("test");
+  const requestedPage = new URLSearchParams(location.search).get("page");
+  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : "test");
 }
 
 async function routeAuthenticatedUser(user) {

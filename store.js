@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   runTransaction,
@@ -125,11 +126,30 @@ export async function listProgress(uid) {
   const snapshot = await getDocs(collection(db, COLLECTIONS.users, uid, "progress"));
   return snapshot.docs.map((item) => ({ id: item.id, uid, ...item.data() }));
 }
-export async function reportQuestion({ uid, studentNumber = "", reporterName = "", subjectId, unitId, type, index, reason, question }) {
-  const reference = await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, reporterStudentNumber: safeText(studentNumber, 7), reporterName: safeText(reporterName, 80), subjectId, unitId, type, index, reason: safeText(reason, 80), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp() });
+export async function reportQuestion({ uid, studentNumber = "", reporterName = "", subjectId, unitId, type, index, reason, details = "", question }) {
+  const reference = await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, reporterStudentNumber: safeText(studentNumber, 7), reporterName: safeText(reporterName, 80), subjectId, unitId, type, index, reason: safeText(reason, 80), details: safeText(details, 1200), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   const confirmation = await getDoc(reference);
   if (!confirmation.exists()) throw new Error("修正依頼の保存を確認できませんでした。もう一度お試しください。");
   return reference.id;
+}
+export async function listQuestionReports() {
+  const snapshot = await getDocs(collection(db, COLLECTIONS.reports));
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    .sort((a, b) => Number(b.createdAt?.seconds || 0) - Number(a.createdAt?.seconds || 0));
+}
+export function watchOpenQuestionReports(onChange, onError = () => {}) {
+  return onSnapshot(query(collection(db, COLLECTIONS.reports), where("status", "==", "open")), (snapshot) => {
+    onChange(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  }, onError);
+}
+export async function updateQuestionReportStatus(reportId, status) {
+  if (!['open', 'resolved'].includes(status)) throw new Error("修正依頼の状態が正しくありません。");
+  await updateDoc(doc(db, COLLECTIONS.reports, reportId), {
+    status,
+    resolvedAt: status === "resolved" ? serverTimestamp() : null,
+    resolvedByUid: status === "resolved" ? auth.currentUser?.uid || "" : "",
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function listUsersAndInvites() {
