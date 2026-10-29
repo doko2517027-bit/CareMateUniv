@@ -1,4 +1,4 @@
-import { db } from "./firebase.js";
+import { auth, db } from "./firebase.js";
 import {
   addDoc,
   collection,
@@ -13,7 +13,6 @@ import {
   setDoc,
   updateDoc,
   where,
-  writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 export const COLLECTIONS = Object.freeze({
@@ -136,28 +135,16 @@ export async function updateUserAccess(uid, patch) {
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
 }
 
-export async function deleteStudyUser(uid, studentNumber) {
-  const userRef = doc(db, COLLECTIONS.users, uid);
-  const [progress, reports] = await Promise.all([
-    getDocs(collection(db, COLLECTIONS.users, uid, "progress")),
-    getDocs(query(collection(db, COLLECTIONS.reports), where("reporterUid", "==", uid))),
-  ]);
-  const operations = [
-    ...progress.docs.map((item) => item.ref),
-    ...reports.docs.map((item) => item.ref),
-  ];
-  for (let offset = 0; offset < operations.length; offset += 400) {
-    const batch = writeBatch(db);
-    operations.slice(offset, offset + 400).forEach((ref) => batch.delete(ref));
-    await batch.commit();
-  }
-  const finalBatch = writeBatch(db);
-  finalBatch.set(doc(db, "studyAppStudentNumbers", studentNumber), {
-    uid,
-    studentNumber,
-    deleted: true,
-    deletedAt: serverTimestamp(),
-  }, { merge: true });
-  finalBatch.delete(userRef);
-  await finalBatch.commit();
+export async function deleteStudyUser(uid) {
+  const current = auth.currentUser;
+  if (!current) throw new Error("ログインしてください。");
+  const token = await current.getIdToken();
+  const response = await fetch("https://caremate-auth.onrender.com/api/deleteStudyAppUser", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ data: { targetUid: uid } }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || "登録情報を削除できませんでした。");
+  return body.data;
 }
