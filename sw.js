@@ -1,4 +1,4 @@
-const CACHE = "caremate-univ-v6";
+const CACHE = "caremate-univ-v7";
 const ASSETS = ["./", "index.html", "styles.css", "app.js", "auth.js", "store.js", "exam.js", "admin.js", "firebase.js", "manifest.json", "assets/cmu-icon.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));

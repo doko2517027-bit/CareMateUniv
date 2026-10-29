@@ -1,4 +1,4 @@
-import { auth, isAdminAuthEmail } from "./firebase.js";
+import { auth, isAdminAuthEmail } from "./firebase.js?v=7";
 import {
   authErrorMessage,
   authReady,
@@ -14,10 +14,10 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js";
-import { renderTestHome } from "./exam.js";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js";
-import { watchOpenQuestionReports } from "./store.js";
+} from "./auth.js?v=7";
+import { renderTestHome } from "./exam.js?v=7";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=7";
+import { watchOpenQuestionReports } from "./store.js?v=7";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

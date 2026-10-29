@@ -1,4 +1,4 @@
-import { auth } from "./firebase.js";
+import { auth } from "./firebase.js?v=7";
 import {
   cancelInvite,
   createAdminInvite,
@@ -20,7 +20,7 @@ import {
   saveUnit,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js";
+} from "./store.js?v=7";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";

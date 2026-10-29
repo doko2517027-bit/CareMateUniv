@@ -1,5 +1,5 @@
-import { auth } from "./firebase.js";
-import { getProgress, listCategories, listSubjects, listUnits, reportQuestion, saveProgress } from "./store.js";
+import { auth } from "./firebase.js?v=7";
+import { getProgress, listCategories, listSubjects, listUnits, reportQuestion, saveProgress } from "./store.js?v=7";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 

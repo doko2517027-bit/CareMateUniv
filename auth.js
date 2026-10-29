@@ -4,7 +4,7 @@ import {
   db,
   isAdminAuthEmail,
   sumsEmail,
-} from "./firebase.js";
+} from "./firebase.js?v=7";
 import {
   createUserWithEmailAndPassword,
   deleteUser,
