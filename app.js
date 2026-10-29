@@ -15,9 +15,9 @@ import {
   registerStudentAccount,
   resendVerification,
 } from "./auth.js?v=7";
-import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=8";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=9";
-import { watchOpenQuestionReports } from "./store.js?v=9";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=10";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=10";
+import { watchOpenQuestionReports } from "./store.js?v=10";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

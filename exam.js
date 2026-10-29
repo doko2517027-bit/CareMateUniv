@@ -1,5 +1,5 @@
 import { auth } from "./firebase.js?v=7";
-import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=9";
+import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=10";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
@@ -295,6 +295,10 @@ async function renderQuestions(root, context, subject, unit) {
   };
   show();
   watchDisplayedUnit(root, context, subject, unit, (latest) => {
+    // All following questions use the fresh published source. The already
+    // displayed question is left untouched until the student opts to reload.
+    items = allQuestions(latest);
+    unit = latest;
     const notice = document.createElement("section");
     notice.className = "study-update-banner";
     notice.setAttribute("role", "status");

@@ -21,7 +21,7 @@ import {
   saveUnit,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=9";
+} from "./store.js?v=10";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";
