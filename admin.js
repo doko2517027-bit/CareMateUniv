@@ -311,12 +311,23 @@ async function openReportQuestionEditor(button, report, context, refresh) {
     if (!unit) throw new Error("対象の単元が見つかりません。");
     const items = Array.isArray(unit[report.type]) ? unit[report.type] : [];
     let index = Number(report.index);
-    if (!Number.isInteger(index) || items[index]?.question !== report.question) {
+    if (!Number.isInteger(index) || index < 0 || items[index]?.question !== report.question) {
       const matches = items.map((item, i) => item.question === report.question ? i : -1).filter((i) => i >= 0);
-      if (matches.length !== 1) {
-        throw new Error("報告された問題を特定できません。問題が編集・削除されている可能性があります。テスト管理から確認してください。");
+      if (matches.length === 1) {
+        index = matches[0];
+      } else if (!Number.isInteger(index) || index < 0 || !items[index]) {
+        throw new Error("報告された問題を特定できません。テスト管理から確認してください。");
+      } else {
+        const accepted = await context.confirm(
+          "報告時の問題文と現在の問題文が異なります。同じ問題への別の修正依頼が処理された可能性があります。現在の「" +
+          items[index].question.slice(0, 80) + "」を編集してよいか確認してください。"
+        );
+        if (!accepted) {
+          panel.remove();
+          button.textContent = "問題・答え・解説を修正";
+          return;
+        }
       }
-      index = matches[0];
     }
     const original = JSON.parse(JSON.stringify(items[index]));
     const answers = Array.isArray(original.answers) && original.answers.length ? original.answers : [original.answer ?? 0];

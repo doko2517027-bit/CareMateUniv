@@ -158,7 +158,10 @@ export async function applyQuestionReportCorrection({ reportId, questionIndex, o
     const questions = unitSnap.data()[type];
     if (!Array.isArray(questions) || !questions[questionIndex]) throw new Error("対象の問題が見つかりません。");
     const current = questions[questionIndex];
-    if (current.question !== report.question || JSON.stringify(current) !== JSON.stringify(original)) {
+    // The reported text is a historical snapshot. Another report may have
+    // already corrected the wording; compare the editor's fresh snapshot
+    // rather than rejecting every subsequent report about this question.
+    if (JSON.stringify(current) !== JSON.stringify(original)) {
       throw new Error("対象の問題がすでに変更されています。修正依頼を開き直して内容を確認してください。");
     }
     const required = (value, limit, label) => {
