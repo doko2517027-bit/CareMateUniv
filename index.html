@@ -7,7 +7,7 @@
   <meta name="description" content="テスト対策に特化したCareMateUniv">
   <title>CareMateUniv</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
   <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
@@ -30,8 +30,8 @@
 
       <form id="loginForm" class="form-stack">
         <h2>ログイン</h2>
-        <label>Active!Mailアドレス
-          <span class="email-field"><input id="loginEmailLocal" autocomplete="username" required maxlength="80"><b>@sums.ac.jp</b></span>
+        <label>学籍番号またはActive!Mailアドレス
+          <input id="loginIdentifier" autocomplete="username" required maxlength="96" placeholder="管理者は学籍番号、学生はメールアドレス">
         </label>
         <label>パスワード<input id="loginPassword" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
         <button class="primary-button" type="submit">ログイン</button>
@@ -39,15 +39,14 @@
 
       <form id="registerForm" class="form-stack" hidden>
         <h2>新規登録</h2>
-        <p class="hint">管理者から受け取った登録コードを使用します。学生登録では大学のActive!Mail確認が必要です。管理者として招待された場合は確認前でも利用開始できます。</p>
+        <p class="hint">学生はActive!Mailアドレスを入力してください。管理者として登録する場合、メールアドレスは空欄のままで進めます。</p>
         <label>学籍番号<input id="registerStudentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label>
-        <label>Active!Mailアドレス
-          <span class="email-field"><input id="registerEmailLocal" autocomplete="email" required maxlength="80"><b>@sums.ac.jp</b></span>
+        <label>Active!Mailアドレス（学生のみ）
+          <span class="email-field"><input id="registerEmailLocal" autocomplete="email" maxlength="80"><b>@sums.ac.jp</b></span>
         </label>
-        <label>登録コード<input id="registerInviteCode" autocomplete="one-time-code" required maxlength="80"></label>
         <label>パスワード<input id="registerPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
         <label>パスワード再入力<input id="registerPasswordConfirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
-        <button class="primary-button" type="submit">確認メールを送信</button>
+        <button class="primary-button" type="submit">登録を続ける</button>
       </form>
       <p id="authStatus" class="status" role="status"></p>
     </section>
@@ -69,12 +68,24 @@
     <form id="activationForm" class="message-card form-stack">
       <span class="message-icon">✓</span>
       <h1>登録を完了</h1>
-      <p>メール確認が完了しました。管理者から受け取った情報を入力してください。</p>
+      <p>メール確認が完了しました。登録時の学籍番号を確認してください。</p>
       <label>学籍番号<input id="activationStudentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label>
-      <label>登録コード<input id="activationInviteCode" autocomplete="one-time-code" required maxlength="80"></label>
       <button class="primary-button" type="submit">利用を開始</button>
       <button id="activationLogout" class="text-button" type="button">ログアウト</button>
       <p id="activationStatus" class="status"></p>
+    </form>
+  </main>
+
+  <main id="adminPasswordScreen" class="center-screen" hidden>
+    <form id="adminPasswordForm" class="message-card form-stack">
+      <span class="message-icon">♛</span>
+      <h1>管理者パスワードを設定</h1>
+      <p>管理者としての登録権限を確認できました。今後ログインに使用する新しいパスワードを設定してください。</p>
+      <label>新しいパスワード<input id="adminNewPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+      <label>新しいパスワード（再入力）<input id="adminNewPasswordConfirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+      <button class="primary-button" type="submit">管理者登録を完了</button>
+      <button id="adminRegistrationCancel" class="text-button" type="button">登録をやめる</button>
+      <p id="adminPasswordStatus" class="status"></p>
     </form>
   </main>
 
@@ -93,6 +104,6 @@
 
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
-  <script type="module" src="app.js?v=1"></script>
+  <script type="module" src="app.js?v=2"></script>
 </body>
 </html>

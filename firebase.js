@@ -15,10 +15,22 @@ export const firebaseApp = initializeApp(firebaseConfig, "caremate-test");
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
 export const SUMS_DOMAIN = "sums.ac.jp";
+export const ADMIN_AUTH_DOMAIN = "admin.caremateuniv.app";
+export const PRIMARY_ADMIN_STUDENT_NUMBER = "2510044";
 export function sumsEmail(localPart) {
   const local = String(localPart || "").trim().toLowerCase();
   if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,80}$/.test(local) || local.includes("..")) {
     throw new Error("Active!Mailアドレスの@より前を正しく入力してください。");
   }
   return `${local}@${SUMS_DOMAIN}`;
+}
+
+export function adminAuthEmail(studentNumber) {
+  const number = String(studentNumber || "").trim();
+  if (!/^\d{7}$/.test(number)) throw new Error("学籍番号は7桁で入力してください。");
+  return `${number}@${ADMIN_AUTH_DOMAIN}`;
+}
+
+export function isAdminAuthEmail(email) {
+  return new RegExp(`^\\d{7}@${ADMIN_AUTH_DOMAIN.replaceAll(".", "\\.")}$`).test(String(email || "").toLowerCase());
 }

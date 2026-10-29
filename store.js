@@ -13,6 +13,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 export const COLLECTIONS = Object.freeze({
@@ -121,18 +122,42 @@ export async function listUsersAndInvites() {
     invites: invites.docs.map((item) => ({ code: item.id, ...item.data() })).sort((a, b) => String(a.studentNumber).localeCompare(String(b.studentNumber))),
   };
 }
-export async function createInvite({ studentNumber, name, emailLocal, role }) {
+export async function createAdminInvite({ studentNumber, name }) {
   const number = safeText(studentNumber, 7);
-  const email = `${safeText(emailLocal, 80).toLowerCase()}@sums.ac.jp`;
-  if (!/^\d{7}$/.test(number) || !/^[^@\s]+@sums\.ac\.jp$/.test(email)) throw new Error("学籍番号またはActive!Mailアドレスを確認してください。");
+  if (!/^\d{7}$/.test(number)) throw new Error("学籍番号は7桁で入力してください。");
   const code = newCode();
-  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || "学生", email, role: role === "admin" ? "admin" : "student", active: true, bootstrap: false, createdAt: serverTimestamp() });
+  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || "管理者", role: "admin", active: true, bootstrap: false, createdAt: serverTimestamp() });
   return code;
 }
 export async function cancelInvite(code) { await deleteDoc(doc(db, COLLECTIONS.invites, code)); }
 export async function updateUserAccess(uid, patch) {
   const allowed = {};
   if (typeof patch.active === "boolean") allowed.active = patch.active;
-  if (["student", "admin"].includes(patch.role)) allowed.role = patch.role;
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
+}
+
+export async function deleteStudyUser(uid, studentNumber) {
+  const userRef = doc(db, COLLECTIONS.users, uid);
+  const [progress, reports] = await Promise.all([
+    getDocs(collection(db, COLLECTIONS.users, uid, "progress")),
+    getDocs(query(collection(db, COLLECTIONS.reports), where("reporterUid", "==", uid))),
+  ]);
+  const operations = [
+    ...progress.docs.map((item) => item.ref),
+    ...reports.docs.map((item) => item.ref),
+  ];
+  for (let offset = 0; offset < operations.length; offset += 400) {
+    const batch = writeBatch(db);
+    operations.slice(offset, offset + 400).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+  const finalBatch = writeBatch(db);
+  finalBatch.set(doc(db, "studyAppStudentNumbers", studentNumber), {
+    uid,
+    studentNumber,
+    deleted: true,
+    deletedAt: serverTimestamp(),
+  }, { merge: true });
+  finalBatch.delete(userRef);
+  await finalBatch.commit();
 }

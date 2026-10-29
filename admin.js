@@ -3,7 +3,8 @@ import { db } from "./firebase.js";
 import {
   COLLECTIONS,
   cancelInvite,
-  createInvite,
+  createAdminInvite,
+  deleteStudyUser,
   getUnit,
   listCategories,
   listSubjects,
@@ -23,7 +24,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";
 
 export function renderAdmin(root, context) {
-  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">管理者</span><h2>CareMateUniv 管理</h2><p>利用者の登録と、まっさらなテスト問題の作成・公開を行います。</p></div><span class="hero-badge">ADMIN</span></section><div class="admin-tabs"><button class="active" data-tab="tests">テスト管理</button><button data-tab="users">ユーザー管理</button><button data-tab="reports">修正依頼</button></div><div id="adminBody"></div>`;
+  const primary = context.profile?.studentNumber === "2510044";
+  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>CareMateUniv 管理</h2><p>管理者の登録、利用者管理、テスト問題の作成・公開を行います。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section><div class="admin-tabs"><button class="active" data-tab="tests">テスト管理</button><button data-tab="users">ユーザー管理</button><button data-tab="reports">修正依頼</button></div><div id="adminBody"></div>`;
   const body = root.querySelector("#adminBody");
   const select = (tab) => {
     root.querySelectorAll("[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
@@ -36,35 +38,46 @@ export function renderAdmin(root, context) {
 }
 
 async function renderUserManager(root, context) {
-  root.innerHTML = `<section class="panel"><div class="panel-header"><div><h2>新しい利用者を登録</h2><p>学生はActive!Mail確認後に利用開始します。管理者として招待したアカウントは確認メールを待たずに利用できます。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><div class="split"><label>Active!Mailアドレス<span class="email-field"><input name="emailLocal" maxlength="80" required><b>@sums.ac.jp</b></span></label><label>権限<select name="role"><option value="student">学生</option><option value="admin">管理者</option></select></label></div><button class="primary-button" type="submit">登録コードを発行</button></form></section><section class="panel"><div class="panel-header"><div><h2>ユーザー情報</h2><p>利用停止・再開と権限変更ができます。</p></div></div><div id="userList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の登録コード</h2><p>コードは該当する学生へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
+  const isPrimaryAdmin = context.profile?.studentNumber === "2510044";
+  root.innerHTML = `<section class="panel"><div class="panel-header"><div><h2>新しい管理者を登録</h2><p>対象者の学籍番号と氏名だけを登録します。発行コードは一度だけ使用できます。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">管理者登録コードを発行</button></form></section><section class="panel"><div class="panel-header"><div><h2>ユーザー情報</h2><p>${isPrimaryAdmin ? "主管理者は利用者を削除できます。2510044の権限は固定です。" : "利用停止・再開はできます。削除は主管理者のみ可能です。"}</p></div></div><div id="userList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の管理者登録コード</h2><p>コードは対象者へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
   root.querySelector("#inviteForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
       context.loading(true, "登録コードを発行中…");
-      const code = await createInvite(Object.fromEntries(form));
-      await context.show(`<h2>登録コード</h2><p>対象学生：${escapeHtml(form.get("studentNumber"))}</p><div class="code-box">${escapeHtml(code)}</div><p class="hint">1回だけ使用できます。Active!Mailアドレスと学籍番号が一致しない場合は登録できません。</p>`);
+      const code = await createAdminInvite(Object.fromEntries(form));
+      await context.show(`<h2>管理者登録コード</h2><p>対象者：${escapeHtml(form.get("studentNumber"))}</p><div class="code-box">${escapeHtml(code)}</div><p class="hint">1回だけ使用できます。新規登録画面ではメールアドレスを空欄にし、このコードをパスワード欄と再入力欄へ入力します。</p>`);
       event.currentTarget.reset();
       await renderUserManager(root, context);
     } catch (error) { context.toast(error.message, true); } finally { context.loading(false); }
   });
   const data = await listUsersAndInvites();
   const userList = root.querySelector("#userList");
-  userList.innerHTML = data.users.length ? data.users.map((user) => `<article class="admin-row"><div><strong>${escapeHtml(user.name || "名前未設定")}（${escapeHtml(user.studentNumber)}）</strong><p>${escapeHtml(user.email)} / ${user.role === "admin" ? "管理者" : "学生"} / ${user.active === false ? "利用停止" : "利用中"}</p></div><div class="inline-actions"><button class="secondary-button" data-role="${escapeHtml(user.id)}" type="button">${user.role === "admin" ? "学生に変更" : "管理者に変更"}</button><button class="${user.active === false ? "primary-button" : "danger-button"}" data-active="${escapeHtml(user.id)}" type="button">${user.active === false ? "利用再開" : "利用停止"}</button></div></article>`).join("") : `<div class="empty">登録済みユーザーはいません。</div>`;
+  userList.innerHTML = data.users.length ? data.users.map((user) => {
+    const isPrimary = user.studentNumber === "2510044";
+    const identity = user.role === "admin" ? (isPrimary ? "主管理者" : "管理者") : `学生${user.email ? ` / ${escapeHtml(user.email)}` : ""}`;
+    const actions = isPrimary
+      ? `<span class="chip">権限固定</span>`
+      : `<div class="inline-actions"><button class="${user.active === false ? "primary-button" : "secondary-button"}" data-active="${escapeHtml(user.id)}" type="button">${user.active === false ? "利用再開" : "利用停止"}</button>${isPrimaryAdmin ? `<button class="danger-button" data-delete-user="${escapeHtml(user.id)}" type="button">登録削除</button>` : ""}</div>`;
+    return `<article class="admin-row"><div><strong>${escapeHtml(user.name || "名前未設定")}（${escapeHtml(user.studentNumber)}）</strong><p>${identity} / ${user.active === false ? "利用停止" : "利用中"}</p></div>${actions}</article>`;
+  }).join("") : `<div class="empty">登録済みユーザーはいません。</div>`;
   const inviteList = root.querySelector("#inviteList");
-  inviteList.innerHTML = data.invites.length ? data.invites.map((invite) => `<article class="admin-row"><div><strong>${escapeHtml(invite.name)}（${escapeHtml(invite.studentNumber)}）</strong><p>${escapeHtml(invite.email || "初期管理者用")} / ${invite.role === "admin" ? "管理者" : "学生"}</p><div class="code-inline">${escapeHtml(invite.code)}</div></div><button class="danger-button" data-cancel="${escapeHtml(invite.code)}" type="button">無効化</button></article>`).join("") : `<div class="empty">未使用コードはありません。</div>`;
+  inviteList.innerHTML = data.invites.length ? data.invites.map((invite) => `<article class="admin-row"><div><strong>${escapeHtml(invite.name)}（${escapeHtml(invite.studentNumber)}）</strong><p>${invite.role === "admin" ? "管理者" : "旧形式の学生登録"}</p><div class="code-inline">${escapeHtml(invite.code)}</div></div><button class="danger-button" data-cancel="${escapeHtml(invite.code)}" type="button">無効化</button></article>`).join("") : `<div class="empty">未使用コードはありません。</div>`;
   userList.querySelectorAll("[data-active]").forEach((button) => button.addEventListener("click", async () => {
     const user = data.users.find((item) => item.id === button.dataset.active);
     if (!await context.confirm(`${user.name}を${user.active === false ? "利用再開" : "利用停止"}しますか？`)) return;
     await updateUserAccess(user.id, { active: user.active === false });
     renderUserManager(root, context);
   }));
-  userList.querySelectorAll("[data-role]").forEach((button) => button.addEventListener("click", async () => {
-    const user = data.users.find((item) => item.id === button.dataset.role);
-    const nextRole = user.role === "admin" ? "student" : "admin";
-    if (!await context.confirm(`${user.name}の権限を${nextRole === "admin" ? "管理者" : "学生"}へ変更しますか？`)) return;
-    await updateUserAccess(user.id, { role: nextRole });
-    renderUserManager(root, context);
+  userList.querySelectorAll("[data-delete-user]").forEach((button) => button.addEventListener("click", async () => {
+    const user = data.users.find((item) => item.id === button.dataset.deleteUser);
+    if (!await context.confirm(`${user.name}（${user.studentNumber}）の登録と学習履歴を削除しますか？この操作は元に戻せません。`)) return;
+    try {
+      context.loading(true, "登録情報を削除中…");
+      await deleteStudyUser(user.id, user.studentNumber);
+      context.toast("登録情報を削除しました。");
+      await renderUserManager(root, context);
+    } catch (error) { context.toast(error.message, true); } finally { context.loading(false); }
   }));
   inviteList.querySelectorAll("[data-cancel]").forEach((button) => button.addEventListener("click", async () => {
     if (!await context.confirm("この登録コードを無効化しますか？")) return;

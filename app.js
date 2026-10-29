@@ -1,15 +1,17 @@
-import { auth } from "./firebase.js";
+import { auth, isAdminAuthEmail } from "./firebase.js";
 import {
   authErrorMessage,
   authReady,
+  beginAdminRegistration,
   changeOwnPassword,
-  completeRegistration,
+  completeStudentRegistration,
+  discardIncompleteAdminAccount,
+  finishAdminRegistration,
   getCurrentProfile,
-  getInviteRole,
   loginAccount,
   logout,
   refreshVerification,
-  registerAccount,
+  registerStudentAccount,
   resendVerification,
 } from "./auth.js";
 import { renderTestHome } from "./exam.js";
@@ -17,7 +19,7 @@ import { parseUnitJson, renderAdmin } from "./admin.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-const screens = ["#authScreen", "#verifyScreen", "#activationScreen", "#appShell"];
+const screens = ["#authScreen", "#verifyScreen", "#activationScreen", "#adminPasswordScreen", "#appShell"];
 let profile = null;
 let currentPage = "test";
 let toastTimer = null;
@@ -100,7 +102,8 @@ function setTheme(theme) {
 }
 
 async function renderSettings(root) {
-  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(profile.studentNumber)} / ${escapeHtml(profile.email)}</p></div><span class="hero-badge">${profile.role === "admin" ? "管理者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
+  const accountLine = profile.role === "admin" ? profile.studentNumber : `${profile.studentNumber} / ${profile.email}`;
+  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : profile.role === "admin" ? "管理者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
   $("#passwordForm", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const output = $("#passwordStatus", root); if (form.get("nextPassword") !== form.get("confirmPassword")) { status(output, "新しいパスワードが一致しません。", true); return; } try { loading(true, "パスワードを変更中…"); await changeOwnPassword(form.get("currentPassword"), form.get("nextPassword")); event.currentTarget.reset(); status(output, "パスワードを変更しました。"); } catch (error) { status(output, authErrorMessage(error), true); } finally { loading(false); } });
   $("#logoutButton", root).addEventListener("click", async () => { if (await confirmDialog("ログアウトしますか？")) { loading(true, "ログアウト中…"); await logout(); location.reload(); } });
 }
@@ -136,24 +139,65 @@ async function routeAuthenticatedUser(user) {
     $("#verifyEmail").textContent = user.email || ""; showOnly("#verifyScreen"); return;
   }
   const pending = JSON.parse(sessionStorage.getItem("caremateTestPending") || "{}");
-  const pendingRole = await getInviteRole(pending.inviteCode).catch(() => null);
-  if (!user.emailVerified && pendingRole !== "admin") {
+  if (pending.mode === "admin") {
+    showOnly("#adminPasswordScreen");
+    return;
+  }
+  if (isAdminAuthEmail(user.email)) {
+    await discardIncompleteAdminAccount();
+    throw new Error("管理者登録が完了していません。発行された登録コードで最初から登録してください。");
+  }
+  if (!user.emailVerified) {
     $("#verifyEmail").textContent = user.email || ""; showOnly("#verifyScreen"); return;
   }
   $("#activationStudentNumber").value = pending.studentNumber || "";
-  $("#activationInviteCode").value = pending.inviteCode || "";
   showOnly("#activationScreen");
 }
 
 function bindEvents() {
   $("#showLogin").onclick = () => { $("#loginForm").hidden = false; $("#registerForm").hidden = true; $("#showLogin").classList.add("active"); $("#showRegister").classList.remove("active"); status($("#authStatus")); };
   $("#showRegister").onclick = () => { $("#loginForm").hidden = true; $("#registerForm").hidden = false; $("#showLogin").classList.remove("active"); $("#showRegister").classList.add("active"); status($("#authStatus")); };
-  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const data = new FormData(event.currentTarget); const user = await loginAccount({ emailLocal: data.get("emailLocal") || $("#loginEmailLocal").value, password: data.get("password") || $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
-  $("#registerForm").onsubmit = async (event) => { event.preventDefault(); const password = $("#registerPassword").value; if (password !== $("#registerPasswordConfirm").value) { status($("#authStatus"), "パスワードが一致しません。", true); return; } try { loading(true, "確認メールを送信中…"); sessionStorage.setItem("caremateTestPending", JSON.stringify({ studentNumber: $("#registerStudentNumber").value, inviteCode: $("#registerInviteCode").value.trim() })); const user = await registerAccount({ emailLocal: $("#registerEmailLocal").value, password }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ identifier: $("#loginIdentifier").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#registerForm").onsubmit = async (event) => {
+    event.preventDefault();
+    const studentNumber = $("#registerStudentNumber").value.trim();
+    const emailLocal = $("#registerEmailLocal").value.trim();
+    const password = $("#registerPassword").value;
+    if (password !== $("#registerPasswordConfirm").value) { status($("#authStatus"), "入力内容が一致しません。", true); return; }
+    try {
+      if (emailLocal) {
+        loading(true, "確認メールを送信中…");
+        sessionStorage.setItem("caremateTestPending", JSON.stringify({ mode: "student", studentNumber }));
+        const user = await registerStudentAccount({ emailLocal, password });
+        await routeAuthenticatedUser(user);
+      } else {
+        loading(true, "管理者権限を確認中…");
+        sessionStorage.setItem("caremateTestPending", JSON.stringify({ mode: "admin", studentNumber, registrationCode: password }));
+        const user = await beginAdminRegistration({ studentNumber, registrationCode: password });
+        await routeAuthenticatedUser(user);
+      }
+    } catch (error) {
+      sessionStorage.removeItem("caremateTestPending");
+      status($("#authStatus"), authErrorMessage(error), true);
+    } finally { loading(false); }
+  };
   $("#checkVerification").onclick = async () => { try { loading(true, "確認状態を取得中…"); const user = await refreshVerification(); if (!user?.emailVerified) { status($("#verifyStatus"), "まだ確認が完了していません。メール内のリンクを開いてください。", true); return; } await routeAuthenticatedUser(user); } catch (error) { status($("#verifyStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#resendVerification").onclick = async () => { try { await resendVerification(); status($("#verifyStatus"), "確認メールを再送しました。"); } catch (error) { status($("#verifyStatus"), authErrorMessage(error), true); } };
-  $("#verifyLogout").onclick = $("#activationLogout").onclick = async () => { await logout(); location.reload(); };
-  $("#activationForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "利用登録を完了中…"); const found = await completeRegistration($("#activationStudentNumber").value, $("#activationInviteCode").value); sessionStorage.removeItem("caremateTestPending"); await enterApp(found); } catch (error) { status($("#activationStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#verifyLogout").onclick = $("#activationLogout").onclick = async () => { sessionStorage.removeItem("caremateTestPending"); await logout(); location.reload(); };
+  $("#activationForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "利用登録を完了中…"); const found = await completeStudentRegistration($("#activationStudentNumber").value); sessionStorage.removeItem("caremateTestPending"); await enterApp(found); } catch (error) { status($("#activationStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#adminPasswordForm").onsubmit = async (event) => {
+    event.preventDefault();
+    const nextPassword = $("#adminNewPassword").value;
+    if (nextPassword !== $("#adminNewPasswordConfirm").value) { status($("#adminPasswordStatus"), "新しいパスワードが一致しません。", true); return; }
+    const pending = JSON.parse(sessionStorage.getItem("caremateTestPending") || "{}");
+    try {
+      loading(true, "管理者登録を完了中…");
+      const found = await finishAdminRegistration({ studentNumber: pending.studentNumber, registrationCode: pending.registrationCode, nextPassword });
+      sessionStorage.removeItem("caremateTestPending");
+      await enterApp(found);
+    } catch (error) { status($("#adminPasswordStatus"), authErrorMessage(error), true); } finally { loading(false); }
+  };
+  $("#adminRegistrationCancel").onclick = async () => { sessionStorage.removeItem("caremateTestPending"); await discardIncompleteAdminAccount(); location.reload(); };
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.page)));
   $("#themeToggle").onclick = () => setTheme(document.documentElement.classList.contains("dark") ? "light" : "dark");
   $("#closeDialog").onclick = closeDialog;
