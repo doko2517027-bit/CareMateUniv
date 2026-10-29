@@ -8,6 +8,7 @@ import {
   getDoc,
   getDocFromServer,
   getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -268,7 +269,7 @@ export async function listAnnouncements({ admin = false } = {}) {
     : query(collection(db, COLLECTIONS.announcements), where("published", "==", true));
   return sortedAnnouncements(await getDocs(source));
 }
-export async function saveAnnouncement({ id = "", title, bodyHtml, bodyText, attachments = [], published = true }) {
+export async function saveAnnouncement({ id = "", title, bodyHtml, bodyText, attachments = [], published = true, sendNotification = true }) {
   const data = {
     title: safeText(title, 120),
     bodyHtml: String(bodyHtml || "").slice(0, 30_000),
@@ -284,9 +285,17 @@ export async function saveAnnouncement({ id = "", title, bodyHtml, bodyText, att
     updatedByUid: auth.currentUser?.uid || "",
   };
   if (!data.title || !data.bodyText) throw new Error("見出しと本文を入力してください。");
-  if (id) { await setDoc(doc(db, COLLECTIONS.announcements, id), data, { merge: true }); return id; }
+  if (id) {
+    await setDoc(doc(db, COLLECTIONS.announcements, id), {
+      ...data,
+      ...(sendNotification ? { notificationRevision: increment(1), notifiedAt: serverTimestamp() } : {}),
+    }, { merge: true });
+    return id;
+  }
   return (await addDoc(collection(db, COLLECTIONS.announcements), {
     ...data,
+    notificationRevision: sendNotification ? 1 : 0,
+    ...(sendNotification ? { notifiedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     publishedAt: serverTimestamp(),
     authorUid: auth.currentUser?.uid || "",
@@ -295,17 +304,18 @@ export async function saveAnnouncement({ id = "", title, bodyHtml, bodyText, att
 export async function removeAnnouncement(id) { await deleteDoc(doc(db, COLLECTIONS.announcements, id)); }
 export function watchAnnouncementReads(uid, onChange, onError = () => {}) {
   return onSnapshot(collection(db, COLLECTIONS.users, uid, "announcementReads"), (snapshot) => {
-    onChange(new Set(snapshot.docs.map((item) => item.id)));
+    onChange(new Map(snapshot.docs.map((item) => [item.id, Number(item.data().notificationRevision || 0)])));
   }, onError);
 }
-export async function markAnnouncementRead(uid, announcementId) {
+export async function markAnnouncementRead(uid, announcementId, notificationRevision = 0) {
   await setDoc(doc(db, COLLECTIONS.users, uid, "announcementReads", announcementId), {
     announcementId,
+    notificationRevision: Math.max(0, Number(notificationRevision) || 0),
     readAt: serverTimestamp(),
   }, { merge: true });
 }
-export async function markAllAnnouncementsRead(uid, announcementIds) {
-  await Promise.all(announcementIds.slice(0, 500).map((id) => markAnnouncementRead(uid, id)));
+export async function markAllAnnouncementsRead(uid, announcements) {
+  await Promise.all(announcements.slice(0, 500).map((item) => markAnnouncementRead(uid, item.id, item.notificationRevision)));
 }
 
 async function callProtectedApi(method, data) {

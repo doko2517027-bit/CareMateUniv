@@ -7,7 +7,7 @@ import {
   saveAnnouncement,
   watchAnnouncementReads,
   watchAnnouncements,
-} from "./store.js?v=11";
+} from "./store.js?v=12";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "U", "SPAN", "FONT", "H2", "H3", "UL", "OL", "LI"]);
@@ -84,6 +84,10 @@ function attachmentHtml(attachments = []) {
   return `${images.length ? `<div class="notice-images">${images.map((item) => `<figure><img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.name || "お知らせ画像")}" loading="lazy"><figcaption>長押しで画像を保存できます</figcaption></figure>`).join("")}</div>` : ""}${pdfs.length ? `<div class="notice-pdfs">${pdfs.map((item, index) => `<button class="secondary-button" data-notice-pdf="${index}" data-url="${escapeHtml(item.url)}" type="button">PDFを開く：${escapeHtml(item.name || `資料${index + 1}`)}</button>`).join("")}</div>` : ""}`;
 }
 
+function announcementIsRead(item, reads) {
+  return reads.has(item.id) && Number(reads.get(item.id) || 0) >= Number(item.notificationRevision || 0);
+}
+
 function openNoticeDetail(item, read, context, onRead) {
   const dialog = document.querySelector("#appDialog");
   const body = sanitizeNoticeHtml(item.bodyHtml || `<p>${escapeHtml(item.bodyText || "")}</p>`);
@@ -94,7 +98,7 @@ function openNoticeDetail(item, read, context, onRead) {
   }));
   dialog.querySelector("#markNoticeRead")?.addEventListener("click", async () => {
     try {
-      await markAnnouncementRead(auth.currentUser.uid, item.id);
+      await markAnnouncementRead(auth.currentUser.uid, item.id, item.notificationRevision);
       context.toast("既読にしました。");
       onRead?.();
       dialog.close();
@@ -119,7 +123,7 @@ export function stopNoticeViewWatch() {
 export function renderStudentNotices(root, context, { focusId = "" } = {}) {
   stopNoticeViewWatch();
   let announcements = [];
-  let reads = new Set();
+  let reads = new Map();
   let currentPage = 1;
   let focusPending = focusId;
   const paint = () => {
@@ -127,16 +131,16 @@ export function renderStudentNotices(root, context, { focusId = "" } = {}) {
     const totalPages = Math.max(1, Math.ceil(announcements.length / pageSize));
     currentPage = Math.min(currentPage, totalPages);
     const pageItems = announcements.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-    const unread = announcements.filter((item) => !reads.has(item.id));
+    const unread = announcements.filter((item) => !announcementIsRead(item, reads));
     const notificationBanner = "Notification" in window && Notification.permission === "default"
       ? `<section class="notice-permission"><div><strong>お知らせをすぐ受け取る</strong><p>通知を許可すると、アプリを開いている端末ですぐにお知らせを確認できます。</p></div><button id="enableNoticeNotifications" class="primary-button" type="button">通知を許可</button></section>` : "";
-    root.innerHTML = `<section class="hero notice-hero"><div><span class="chip">INFORMATION</span><h2>お知らせ</h2><p>学校・管理者からのお知らせを確認できます。</p></div><span class="hero-badge">未読 ${unread.length}</span></section>${notificationBanner}<section class="panel"><div class="panel-header"><div><h2>お知らせ一覧</h2><p>5件ずつ新しい順に表示します。</p></div>${unread.length ? `<button id="markAllNoticesRead" class="secondary-button compact-button" type="button">すべて既読</button>` : `<span class="chip">すべて既読</span>`}</div><div class="notice-list">${pageItems.length ? pageItems.map((item) => `<button class="notice-row ${reads.has(item.id) ? "is-read" : "is-unread"}" data-notice-id="${escapeHtml(item.id)}" type="button"><span class="notice-unread-dot" aria-hidden="true"></span><span><strong>${escapeHtml(item.title)}</strong><small>${dateText(item.publishedAt || item.createdAt)}</small></span><i>›</i></button>`).join("") : `<div class="empty">お知らせはまだありません。</div>`}</div>${totalPages > 1 ? `<nav class="notice-pagination" aria-label="お知らせページ"><button data-page-action="first" ${currentPage === 1 ? "disabled" : ""} type="button">最初</button><button data-page-action="prev" ${currentPage === 1 ? "disabled" : ""} type="button">‹</button>${pageWindow(currentPage, totalPages).map((page) => `<button data-notice-page="${page}" class="${page === currentPage ? "active" : ""}" type="button">${page}</button>`).join("")}<button data-page-action="next" ${currentPage === totalPages ? "disabled" : ""} type="button">›</button><button data-page-action="last" ${currentPage === totalPages ? "disabled" : ""} type="button">最後</button></nav>` : ""}</section>`;
+    root.innerHTML = `<section class="hero notice-hero"><div><span class="chip">INFORMATION</span><h2>お知らせ</h2><p>学校・管理者からのお知らせを確認できます。</p></div><span class="hero-badge">未読 ${unread.length}</span></section>${notificationBanner}<section class="panel"><div class="panel-header"><div><h2>お知らせ一覧</h2><p>5件ずつ新しい順に表示します。</p></div>${unread.length ? `<button id="markAllNoticesRead" class="secondary-button compact-button" type="button">すべて既読</button>` : `<span class="chip">すべて既読</span>`}</div><div class="notice-list">${pageItems.length ? pageItems.map((item) => `<button class="notice-row ${announcementIsRead(item, reads) ? "is-read" : "is-unread"}" data-notice-id="${escapeHtml(item.id)}" type="button"><span class="notice-unread-dot" aria-hidden="true"></span><span><strong>${escapeHtml(item.title)}</strong><small>${dateText(item.publishedAt || item.createdAt)}</small></span><i>›</i></button>`).join("") : `<div class="empty">お知らせはまだありません。</div>`}</div>${totalPages > 1 ? `<nav class="notice-pagination" aria-label="お知らせページ"><button data-page-action="first" ${currentPage === 1 ? "disabled" : ""} type="button">最初</button><button data-page-action="prev" ${currentPage === 1 ? "disabled" : ""} type="button">‹</button>${pageWindow(currentPage, totalPages).map((page) => `<button data-notice-page="${page}" class="${page === currentPage ? "active" : ""}" type="button">${page}</button>`).join("")}<button data-page-action="next" ${currentPage === totalPages ? "disabled" : ""} type="button">›</button><button data-page-action="last" ${currentPage === totalPages ? "disabled" : ""} type="button">最後</button></nav>` : ""}</section>`;
     root.querySelectorAll("[data-notice-id]").forEach((button) => button.addEventListener("click", () => {
       const item = announcements.find((entry) => entry.id === button.dataset.noticeId);
-      if (item) openNoticeDetail(item, reads.has(item.id), context, paint);
+      if (item) openNoticeDetail(item, announcementIsRead(item, reads), context, paint);
     }));
     root.querySelector("#markAllNoticesRead")?.addEventListener("click", async () => {
-      try { context.loading(true, "既読にしています…"); await markAllAnnouncementsRead(auth.currentUser.uid, unread.map((item) => item.id)); context.toast("すべて既読にしました。"); }
+      try { context.loading(true, "既読にしています…"); await markAllAnnouncementsRead(auth.currentUser.uid, unread); context.toast("すべて既読にしました。"); }
       catch (error) { context.toast(error.message || "既読にできませんでした。", true); }
       finally { context.loading(false); }
     });
@@ -156,7 +160,7 @@ export function renderStudentNotices(root, context, { focusId = "" } = {}) {
     if (focusPending) {
       const item = announcements.find((entry) => entry.id === focusPending);
       focusPending = "";
-      if (item) queueMicrotask(() => openNoticeDetail(item, reads.has(item.id), context, paint));
+      if (item) queueMicrotask(() => openNoticeDetail(item, announcementIsRead(item, reads), context, paint));
     }
   };
   root.innerHTML = `<section class="panel"><div class="empty">お知らせを読み込んでいます…</div></section>`;
@@ -193,10 +197,31 @@ export async function renderAnnouncementManager(root, context, onBack) {
   let editing = null;
   let attachments = [];
   const render = () => {
-    root.innerHTML = `${adminHeader(onBack)}<section class="panel notice-admin-editor"><div class="panel-header"><div><h2>${editing ? "お知らせを編集" : "新しいお知らせ"}</h2><p>公開すると学生のお知らせタブへすぐに反映されます。</p></div>${editing ? `<button id="cancelNoticeEdit" class="secondary-button compact-button" type="button">新規作成へ戻る</button>` : ""}</div><form id="noticeAdminForm" class="form-stack"><label>見出し<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" placeholder="お知らせの見出し"></label><label>本文</label><div class="rich-toolbar" role="toolbar" aria-label="本文の書式"><button data-rich-command="bold" type="button"><b>太字</b></button><button data-rich-command="underline" type="button"><u>下線</u></button><select id="noticeFontSize" aria-label="文字サイズ"><option value="14">小</option><option value="16" selected>標準</option><option value="20">大</option><option value="24">特大</option></select><label>文字色<input id="noticeTextColor" type="color" value="#142b32"></label></div><div id="noticeRichEditor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="お知らせ本文を入力してください">${sanitizeNoticeHtml(editing?.bodyHtml || "")}</div><section class="notice-upload"><div><strong>写真・PDF</strong><small>写真10MB、PDF20MBまで。最大12件。</small></div><input id="noticeAttachmentInput" type="file" accept="image/*,application/pdf" multiple><div id="noticeAttachmentList" class="notice-attachment-editor">${attachments.length ? attachments.map((item, index) => `<article>${item.type === "image" ? `<img src="${escapeHtml(item.url)}" alt="">` : `<span class="pdf-file-mark">PDF</span>`}<b>${escapeHtml(item.name)}</b><button data-remove-notice-attachment="${index}" class="danger-button compact-button" type="button">削除</button></article>`).join("") : `<p class="hint">添付ファイルはありません。</p>`}</div></section><button class="primary-button" type="submit">${editing ? "変更を公開" : "公開して通知"}</button><p id="noticeAdminStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>公開済みのお知らせ</h2><p>新しい順に表示しています。</p></div><span class="chip">${items.length}件</span></div><div class="admin-list">${items.length ? items.map((item) => `<article class="admin-row"><div><strong>${escapeHtml(item.title)}</strong><p>${dateText(item.publishedAt || item.createdAt)}</p><small>${escapeHtml(String(item.bodyText || "").slice(0, 100))}</small></div><div class="inline-actions"><button class="secondary-button compact-button" data-edit-notice="${escapeHtml(item.id)}" type="button">編集</button><button class="danger-button compact-button" data-delete-notice="${escapeHtml(item.id)}" type="button">削除</button></div></article>`).join("") : `<div class="empty">公開済みのお知らせはありません。</div>`}</div></section>`;
+    const notificationLabel = editing ? "編集内容を学生・管理者へ通知する" : "学生・管理者へ新着通知を送る";
+    root.innerHTML = `${adminHeader(onBack)}<section class="panel notice-admin-editor">
+      <div class="panel-header"><div><h2>${editing ? "お知らせを編集" : "新しいお知らせ"}</h2><p>通知の有無を選んで公開できます。</p></div>${editing ? `<button id="cancelNoticeEdit" class="secondary-button compact-button" type="button">新規作成へ戻る</button>` : ""}</div>
+      <form id="noticeAdminForm" class="form-stack">
+        <label>見出し<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" placeholder="お知らせの見出し"></label>
+        <label>本文</label>
+        <div class="rich-toolbar" role="toolbar" aria-label="本文の書式"><button data-rich-command="bold" type="button"><b>太字</b></button><button data-rich-command="underline" type="button"><u>下線</u></button><select id="noticeFontSize" aria-label="文字サイズ"><option value="14">小</option><option value="16" selected>標準</option><option value="20">大</option><option value="24">特大</option></select><label>文字色<input id="noticeTextColor" type="color" value="#142b32"></label></div>
+        <div id="noticeRichEditor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="お知らせ本文を入力してください">${sanitizeNoticeHtml(editing?.bodyHtml || "")}</div>
+        <section class="notice-upload"><div><strong>写真・PDF</strong><small>写真10MB、PDF20MBまで。最大12件。アップロードしても入力中の文章は保持されます。</small></div><input id="noticeAttachmentInput" type="file" accept="image/*,application/pdf" multiple><div id="noticeAttachmentList" class="notice-attachment-editor"></div></section>
+        <label class="checkbox-row notice-send-option"><input name="sendNotification" type="checkbox" ${editing ? "" : "checked"}><span><strong>${notificationLabel}</strong><small>${editing ? "チェックした場合は既読済みの人にも再通知し、未読へ戻します。" : "チェックを外すと、お知らせ一覧だけに静かに追加します。"}</small></span></label>
+        <button class="primary-button" type="submit">${editing ? "変更を公開" : "お知らせを公開"}</button><p id="noticeAdminStatus" class="status"></p>
+      </form></section>
+      <section class="panel"><div class="panel-header"><div><h2>公開済みのお知らせ</h2><p>新しい順に表示しています。</p></div><span class="chip">${items.length}件</span></div><div class="admin-list">${items.length ? items.map((item) => `<article class="admin-row"><div><strong>${escapeHtml(item.title)}</strong><p>${dateText(item.publishedAt || item.createdAt)}</p><small>${escapeHtml(String(item.bodyText || "").slice(0, 100))}</small></div><div class="inline-actions"><button class="secondary-button compact-button" data-edit-notice="${escapeHtml(item.id)}" type="button">編集</button><button class="danger-button compact-button" data-delete-notice="${escapeHtml(item.id)}" type="button">削除</button></div></article>`).join("") : `<div class="empty">公開済みのお知らせはありません。</div>`}</div></section>`;
     root.querySelector("#noticeAdminBack").onclick = onBack;
     root.querySelector("#cancelNoticeEdit")?.addEventListener("click", () => { editing = null; attachments = []; render(); });
     const editor = root.querySelector("#noticeRichEditor");
+    const attachmentList = root.querySelector("#noticeAttachmentList");
+    const paintAttachments = () => {
+      attachmentList.innerHTML = attachments.length ? attachments.map((item, index) => `<article>${item.type === "image" ? `<img src="${escapeHtml(item.url)}" alt="">` : `<span class="pdf-file-mark">PDF</span>`}<b>${escapeHtml(item.name)}</b><button data-remove-notice-attachment="${index}" class="danger-button compact-button" type="button">削除</button></article>`).join("") : `<p class="hint">添付ファイルはありません。</p>`;
+      attachmentList.querySelectorAll("[data-remove-notice-attachment]").forEach((button) => button.addEventListener("click", () => {
+        attachments.splice(Number(button.dataset.removeNoticeAttachment), 1);
+        paintAttachments();
+      }));
+    };
+    paintAttachments();
     root.querySelector("#noticeFontSize").insertAdjacentHTML("beforebegin", `<select id="noticeFontFamily" aria-label="字体"><option value="sans-serif">ゴシック</option><option value="serif">明朝</option><option value="Arial Rounded MT Bold">丸ゴシック</option></select>`);
     root.querySelectorAll("[data-rich-command]").forEach((button) => button.addEventListener("mousedown", (event) => { event.preventDefault(); document.execCommand(button.dataset.richCommand); editor.focus(); }));
     root.querySelector("#noticeFontSize").addEventListener("change", (event) => { document.execCommand("fontSize", false, "7"); editor.querySelectorAll('font[size="7"]').forEach((node) => { const span = document.createElement("span"); span.style.fontSize = `${event.target.value}px`; span.innerHTML = node.innerHTML; node.replaceWith(span); }); editor.focus(); });
@@ -208,11 +233,12 @@ export async function renderAnnouncementManager(root, context, onBack) {
       try {
         context.loading(true, "ファイルをアップロード中…");
         for (const file of files) attachments.push(await uploadNoticeFile(file));
-        render();
+        paintAttachments();
+        event.target.value = "";
+        context.toast("添付ファイルを追加しました。");
       } catch (error) { context.toast(error.message || "アップロードできませんでした。", true); }
       finally { context.loading(false); }
     });
-    root.querySelectorAll("[data-remove-notice-attachment]").forEach((button) => button.addEventListener("click", () => { attachments.splice(Number(button.dataset.removeNoticeAttachment), 1); render(); }));
     root.querySelector("#noticeAdminForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const cleanHtml = sanitizeNoticeHtml(editor.innerHTML);
@@ -220,8 +246,9 @@ export async function renderAnnouncementManager(root, context, onBack) {
       if (!bodyText) { root.querySelector("#noticeAdminStatus").textContent = "本文を入力してください。"; root.querySelector("#noticeAdminStatus").className = "status error"; return; }
       try {
         context.loading(true, editing ? "お知らせを更新中…" : "お知らせを公開中…");
-        await saveAnnouncement({ id: editing?.id || "", title: event.currentTarget.elements.title.value, bodyHtml: cleanHtml, bodyText, attachments, published: true });
-        context.toast(editing ? "お知らせを更新しました。" : "お知らせを公開しました。");
+        const sendNotification = event.currentTarget.elements.sendNotification.checked;
+        await saveAnnouncement({ id: editing?.id || "", title: event.currentTarget.elements.title.value, bodyHtml: cleanHtml, bodyText, attachments, published: true, sendNotification });
+        context.toast(`${editing ? "お知らせを更新" : "お知らせを公開"}しました。${sendNotification ? "通知も送信しました。" : "通知は送信していません。"}`);
         items = await listAnnouncements({ admin: true }); editing = null; attachments = []; render();
       } catch (error) { context.toast(error.message || "お知らせを保存できませんでした。", true); }
       finally { context.loading(false); }

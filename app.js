@@ -15,10 +15,10 @@ import {
   registerStudentAccount,
   resendVerification,
 } from "./auth.js?v=8";
-import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=11";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=11";
-import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=1";
-import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=11";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=12";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=12";
+import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=2";
+import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=12";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -30,9 +30,9 @@ let stopReportWatch = null;
 let knownOpenReportIds = new Set();
 let stopNoticeBadgeWatch = null;
 let stopNoticeReadWatch = null;
-let knownAnnouncementIds = new Set();
+let knownAnnouncementRevisions = new Map();
 let latestAnnouncements = [];
-let latestAnnouncementReads = new Set();
+let latestAnnouncementReads = new Map();
 
 function showOnly(selector) { screens.forEach((item) => { $(item).hidden = item !== selector; }); }
 function loading(show, message = "読み込み中…") { $("#loadingMessage").textContent = message; $("#loadingOverlay").hidden = !show; }
@@ -347,7 +347,8 @@ function startAdminReportWatch() {
 }
 
 function updateNoticeBadge() {
-  const count = latestAnnouncements.filter((item) => !latestAnnouncementReads.has(item.id)).length;
+  const count = latestAnnouncements.filter((item) => !latestAnnouncementReads.has(item.id)
+    || Number(latestAnnouncementReads.get(item.id) || 0) < Number(item.notificationRevision || 0)).length;
   const badge = $("#noticeUnreadBadge");
   badge.textContent = count > 99 ? "99+" : String(count);
   badge.hidden = count === 0;
@@ -369,17 +370,21 @@ function startStudentNoticeWatch() {
   stopNoticeReadWatch?.();
   stopNoticeBadgeWatch = null;
   stopNoticeReadWatch = null;
-  knownAnnouncementIds = new Set();
+  knownAnnouncementRevisions = new Map();
   latestAnnouncements = [];
-  latestAnnouncementReads = new Set();
+  latestAnnouncementReads = new Map();
   updateNoticeBadge();
   if (!auth.currentUser) return;
   let initialized = false;
   stopNoticeBadgeWatch = watchAnnouncements({}, (items) => {
     latestAnnouncements = items;
     updateNoticeBadge();
-    if (initialized) items.filter((item) => !knownAnnouncementIds.has(item.id)).forEach(showStudentNoticeNotification);
-    knownAnnouncementIds = new Set(items.map((item) => item.id));
+    if (initialized) items.filter((item) => {
+      const revision = Number(item.notificationRevision || 0);
+      const previous = knownAnnouncementRevisions.get(item.id);
+      return revision > 0 && (previous === undefined || revision > previous);
+    }).forEach(showStudentNoticeNotification);
+    knownAnnouncementRevisions = new Map(items.map((item) => [item.id, Number(item.notificationRevision || 0)]));
     initialized = true;
   }, (error) => console.warn("お知らせを更新できませんでした。", error));
   stopNoticeReadWatch = watchAnnouncementReads(auth.currentUser.uid, (reads) => {
