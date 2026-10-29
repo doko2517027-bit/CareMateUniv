@@ -1,4 +1,4 @@
-import { auth, isAdminAuthEmail } from "./firebase.js?v=7";
+import { auth, isAdminAuthEmail } from "./firebase.js?v=8";
 import {
   authErrorMessage,
   authReady,
@@ -14,10 +14,11 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=7";
-import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=10";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=10";
-import { watchOpenQuestionReports } from "./store.js?v=10";
+} from "./auth.js?v=8";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=11";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=11";
+import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=1";
+import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=11";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -27,6 +28,11 @@ let currentPage = "test";
 let toastTimer = null;
 let stopReportWatch = null;
 let knownOpenReportIds = new Set();
+let stopNoticeBadgeWatch = null;
+let stopNoticeReadWatch = null;
+let knownAnnouncementIds = new Set();
+let latestAnnouncements = [];
+let latestAnnouncementReads = new Set();
 
 function showOnly(selector) { screens.forEach((item) => { $(item).hidden = item !== selector; }); }
 function loading(show, message = "読み込み中…") { $("#loadingMessage").textContent = message; $("#loadingOverlay").hidden = !show; }
@@ -113,9 +119,9 @@ function questionImageEditor(item = {}) {
   </section>`;
 }
 
-function fillQuestionEditor(item = {}, index = 0) {
+function fillQuestionEditor(item = {}, index = 0, originalIndex = "") {
   const answers = Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
-  return `<article class="question-editor" data-kind="fill">
+  return `<article class="question-editor" data-kind="fill" data-question-id="${escapeHtml(item.id || crypto.randomUUID())}" data-original-index="${originalIndex}">
     <div class="editor-section-heading"><strong>穴埋め問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
     <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
     ${questionImageEditor(item)}
@@ -130,10 +136,10 @@ function quizChoiceEditor(choice = "", correct = false, index = 0) {
   return `<div class="editor-input-row quiz-choice-row"><label class="correct-choice"><input data-role="quiz-correct" type="checkbox" ${correct ? "checked" : ""}><span>正解</span></label><input data-role="quiz-choice" value="${escapeHtml(choice)}" placeholder="選択肢 ${index + 1}"><button class="danger-button compact-button" data-action="delete-choice" type="button" aria-label="選択肢を削除">−</button></div>`;
 }
 
-function quizQuestionEditor(item = {}, index = 0) {
+function quizQuestionEditor(item = {}, index = 0, originalIndex = "") {
   const choices = Array.isArray(item.choices) && item.choices.length ? item.choices : ["", "", "", ""];
   const correct = Array.isArray(item.answers) && item.answers.length ? item.answers.map(Number) : [Number(item.answer) || 0];
-  return `<article class="question-editor" data-kind="quiz">
+  return `<article class="question-editor" data-kind="quiz" data-question-id="${escapeHtml(item.id || crypto.randomUUID())}" data-original-index="${originalIndex}">
     <div class="editor-section-heading"><strong>選択問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
     <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
     ${questionImageEditor(item)}
@@ -179,19 +185,23 @@ function unitEditor(unit = {}, context, target = null) {
     const form = $("#unitEditorForm", host);
     const fillList = $("#fillQuestionList");
     const quizList = $("#quizQuestionList");
+    const originalCounts = {
+      fill_blank: Array.isArray(unit.fill_blank) ? unit.fill_blank.length : 0,
+      quiz: Array.isArray(unit.quiz) ? unit.quiz.length : 0,
+    };
     const updateLabels = () => {
       fillList.querySelectorAll('[data-kind="fill"]').forEach((card, index) => { card.querySelector(".editor-section-heading strong").textContent = `穴埋め問題 ${index + 1}`; });
       quizList.querySelectorAll('[data-kind="quiz"]').forEach((card, index) => { card.querySelector(".editor-section-heading strong").textContent = `選択問題 ${index + 1}`; });
       $("#fillCount").textContent = `${fillList.children.length}問`;
       $("#quizCount").textContent = `${quizList.children.length}問`;
     };
-    const renderQuestions = (data = {}) => {
-      fillList.innerHTML = (data.fill_blank || []).map(fillQuestionEditor).join("");
-      quizList.innerHTML = (data.quiz || []).map(quizQuestionEditor).join("");
+    const renderQuestions = (data = {}, trackOriginal = false) => {
+      fillList.innerHTML = (data.fill_blank || []).map((item, index) => fillQuestionEditor(item, index, trackOriginal ? index : "")).join("");
+      quizList.innerHTML = (data.quiz || []).map((item, index) => quizQuestionEditor(item, index, trackOriginal ? index : "")).join("");
       updateLabels();
     };
     const done = (value) => { if (dialog) { dialog.onclose = null; closeDialog(); } resolve(value); };
-    renderQuestions(unit);
+    renderQuestions(unit, true);
     $("#unitCancel").onclick = () => done(null);
     $("#addFillQuestion").onclick = () => { fillList.insertAdjacentHTML("beforeend", fillQuestionEditor({}, fillList.children.length)); updateLabels(); };
     $("#addQuizQuestion").onclick = () => { quizList.insertAdjacentHTML("beforeend", quizQuestionEditor({}, quizList.children.length)); updateLabels(); };
@@ -248,20 +258,28 @@ function unitEditor(unit = {}, context, target = null) {
       event.preventDefault();
       const fill_blank = [...fillList.querySelectorAll('[data-kind="fill"]')].map((card) => {
         const answers = [...card.querySelectorAll('[data-role="fill-answer"]')].map((input) => input.value.trim()).filter(Boolean);
-        return { question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
       });
       const quiz = [...quizList.querySelectorAll('[data-kind="quiz"]')].map((card) => {
         const rows = [...card.querySelectorAll(".quiz-choice-row")];
         const choices = rows.map((row) => row.querySelector('[data-role="quiz-choice"]').value.trim());
         const answers = rows.map((row, index) => row.querySelector('[data-role="quiz-correct"]').checked ? index : -1).filter((index) => index >= 0);
-        return { question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
       });
       if (fill_blank.some((item) => !item.question || !item.answers.length)) { status($("#unitStatus"), "穴埋め問題の問題文と解答を入力してください。", true); return; }
       if (quiz.some((item) => !item.question || item.choices.length < 2 || item.choices.some((choice) => !choice) || !Array.isArray(item.answers) && !Number.isInteger(item.answer))) { status($("#unitStatus"), "選択問題の問題文・2つ以上の選択肢・正解を入力してください。", true); return; }
       const quizWithoutAnswer = [...quizList.querySelectorAll('[data-kind="quiz"]')].some((card) => !card.querySelector('[data-role="quiz-correct"]:checked'));
       if (quizWithoutAnswer) { status($("#unitStatus"), "選択問題ごとに正解を1つ以上選んでください。", true); return; }
       const data = new FormData(form);
-      done({ name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), published: form.elements.published.checked, summary: data.get("summary"), important_points: data.get("important_points"), fill_blank, quiz });
+      const buildMap = (list, size) => {
+        const map = Array(size).fill(-1);
+        [...list.children].forEach((card, newIndex) => {
+          const oldIndex = Number(card.dataset.originalIndex);
+          if (card.dataset.originalIndex !== "" && Number.isInteger(oldIndex) && oldIndex >= 0 && oldIndex < size) map[oldIndex] = newIndex;
+        });
+        return map;
+      };
+      done({ name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), published: form.elements.published.checked, summary: data.get("summary"), important_points: data.get("important_points"), fill_blank, quiz, _questionMaps: { fill_blank: buildMap(fillList, originalCounts.fill_blank), quiz: buildMap(quizList, originalCounts.quiz) } });
     };
     if (dialog) dialog.onclose = () => resolve(null);
   });
@@ -307,6 +325,48 @@ function startAdminReportWatch() {
   }, (error) => console.warn("修正依頼の通知を更新できませんでした。", error));
 }
 
+function updateNoticeBadge() {
+  const count = latestAnnouncements.filter((item) => !latestAnnouncementReads.has(item.id)).length;
+  const badge = $("#noticeUnreadBadge");
+  badge.textContent = count > 99 ? "99+" : String(count);
+  badge.hidden = count === 0;
+}
+
+async function showStudentNoticeNotification(item) {
+  toast(`新しいお知らせ：${item.title}`);
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const url = `${location.origin}${location.pathname}?page=notices&notice=${encodeURIComponent(item.id)}`;
+    const registration = await navigator.serviceWorker?.ready;
+    if (registration) await registration.showNotification(item.title, { body: String(item.bodyText || "").slice(0, 120), icon: "assets/cmu-icon.png", badge: "assets/cmu-icon.png", data: { url }, tag: `study-notice-${item.id}` });
+    else new Notification(item.title, { body: String(item.bodyText || "").slice(0, 120), icon: "assets/cmu-icon.png", tag: `study-notice-${item.id}` });
+  } catch (_) {}
+}
+
+function startStudentNoticeWatch() {
+  stopNoticeBadgeWatch?.();
+  stopNoticeReadWatch?.();
+  stopNoticeBadgeWatch = null;
+  stopNoticeReadWatch = null;
+  knownAnnouncementIds = new Set();
+  latestAnnouncements = [];
+  latestAnnouncementReads = new Set();
+  updateNoticeBadge();
+  if (profile?.role === "admin" || !auth.currentUser) return;
+  let initialized = false;
+  stopNoticeBadgeWatch = watchAnnouncements({}, (items) => {
+    latestAnnouncements = items;
+    updateNoticeBadge();
+    if (initialized) items.filter((item) => !knownAnnouncementIds.has(item.id)).forEach(showStudentNoticeNotification);
+    knownAnnouncementIds = new Set(items.map((item) => item.id));
+    initialized = true;
+  }, (error) => console.warn("お知らせを更新できませんでした。", error));
+  stopNoticeReadWatch = watchAnnouncementReads(auth.currentUser.uid, (reads) => {
+    latestAnnouncementReads = reads;
+    updateNoticeBadge();
+  }, (error) => console.warn("既読状態を更新できませんでした。", error));
+}
+
 function setTheme(theme) {
   const dark = theme === "dark";
   document.documentElement.classList.add("theme-changing");
@@ -328,9 +388,11 @@ async function renderSettings(root) {
 
 async function navigate(page) {
   stopStudyUnitWatch();
+  stopNoticeViewWatch();
   if (page === "admin" && profile.role !== "admin") page = "test";
+  if (page === "notices" && profile.role === "admin") page = "admin";
   currentPage = page;
-  $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "settings" ? "設定" : "管理";
+  $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "notices" ? "お知らせ" : page === "settings" ? "設定" : "管理";
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   loading(true, "画面を読み込み中…");
   try {
@@ -338,6 +400,7 @@ async function navigate(page) {
     if (page === "test") await renderTestHome(root, context);
     if (page === "analytics") await renderPersonalAnalytics(root, context);
     if (page === "settings") await renderSettings(root);
+    if (page === "notices") renderStudentNotices(root, context, { focusId: new URLSearchParams(location.search).get("notice") || "" });
     if (page === "admin") renderAdmin(root, context);
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (error) { $("#appContent").innerHTML = `<section class="panel"><div class="empty"><strong>画面を読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryPage" class="primary-button">再読み込み</button></div></section>`; $("#retryPage").onclick = () => navigate(currentPage); }
@@ -348,10 +411,12 @@ async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
   $("#adminNav").hidden = profile.role !== "admin";
+  $("#noticesNav").hidden = profile.role === "admin";
   startAdminReportWatch();
+  startStudentNoticeWatch();
   showOnly("#appShell");
   const requestedPage = new URLSearchParams(location.search).get("page");
-  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : "test");
+  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : requestedPage === "notices" && profile.role !== "admin" ? "notices" : "test");
 }
 
 async function routeAuthenticatedUser(user) {

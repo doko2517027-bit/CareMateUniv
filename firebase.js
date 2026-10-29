@@ -13,6 +13,7 @@ const firebaseConfig = {
 
 export const firebaseApp = initializeApp(firebaseConfig, "caremate-test");
 export const auth = getAuth(firebaseApp);
+auth.languageCode = "ja";
 export const db = getFirestore(firebaseApp);
 export const SUMS_DOMAIN = "sums.ac.jp";
 export const ADMIN_AUTH_DOMAIN = "admin.caremateuniv.app";

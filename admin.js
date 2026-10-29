@@ -1,4 +1,4 @@
-import { auth } from "./firebase.js?v=7";
+import { auth } from "./firebase.js?v=8";
 import {
   applyQuestionReportCorrection,
   cancelInvite,
@@ -21,7 +21,8 @@ import {
   saveUnit,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=10";
+} from "./store.js?v=11";
+import { renderAnnouncementManager } from "./notices.js?v=1";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";
@@ -42,10 +43,11 @@ function renderAdminMenu(root, context) {
   const primary = context.profile?.studentNumber === "2510044";
   const notificationAvailable = "Notification" in window;
   const notificationGranted = notificationAvailable && Notification.permission === "granted";
-  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>管理メニュー</h2><p>行う作業を選んで専用画面へ移動します。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section>${notificationGranted ? "" : `<section class="admin-notification-banner"><div><strong>修正依頼の通知</strong><p>${notificationAvailable ? "通知を許可すると、新しい修正依頼をすぐ確認できます。" : "このブラウザは通知に対応していません。"}</p></div>${notificationAvailable ? `<button id="enableAdminNotifications" class="primary-button" type="button">通知を有効にする</button>` : ""}</section>`}<section class="admin-menu-grid"><button data-admin-page="tests" type="button"><span>📚</span><strong>テスト管理</strong><small>区分・科目・単元・問題</small><i>›</i></button><button data-admin-page="analytics" type="button"><span>📊</span><strong>全体の学習分析</strong><small>正答率・苦手問題・解答数</small><i>›</i></button><button data-admin-page="users" type="button"><span>👥</span><strong>ユーザー管理</strong><small>管理者と学生を分けて管理</small><i>›</i></button><button class="report-menu-button" data-admin-page="reports" type="button"><span>✎</span><span class="report-menu-copy"><strong>修正依頼</strong><small>問題・答え・解説の報告</small></span><em data-report-menu-badge class="notification-count-badge" ${context.reportCount ? "" : "hidden"}>${context.reportCount || 0}</em><i>›</i></button></section>`;
+  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>管理メニュー</h2><p>行う作業を選んで専用画面へ移動します。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section>${notificationGranted ? "" : `<section class="admin-notification-banner"><div><strong>修正依頼の通知</strong><p>${notificationAvailable ? "通知を許可すると、新しい修正依頼をすぐ確認できます。" : "このブラウザは通知に対応していません。"}</p></div>${notificationAvailable ? `<button id="enableAdminNotifications" class="primary-button" type="button">通知を有効にする</button>` : ""}</section>`}<section class="admin-menu-grid"><button data-admin-page="tests" type="button"><span>📚</span><strong>テスト管理</strong><small>区分・科目・単元・問題</small><i>›</i></button><button data-admin-page="analytics" type="button"><span>📊</span><strong>全体の学習分析</strong><small>正答率・苦手問題・解答数</small><i>›</i></button><button data-admin-page="users" type="button"><span>👥</span><strong>ユーザー管理</strong><small>管理者と学生を分けて管理</small><i>›</i></button><button data-admin-page="notices" type="button"><span>📣</span><strong>お知らせ管理</strong><small>即時通知・写真・PDF・書式</small><i>›</i></button><button class="report-menu-button" data-admin-page="reports" type="button"><span>✎</span><span class="report-menu-copy"><strong>修正依頼</strong><small>問題・答え・解説の報告</small></span><em data-report-menu-badge class="notification-count-badge" ${context.reportCount ? "" : "hidden"}>${context.reportCount || 0}</em><i>›</i></button></section>`;
   root.querySelector('[data-admin-page="tests"]').onclick = () => renderTestManager(root, context);
   root.querySelector('[data-admin-page="analytics"]').onclick = () => renderAnalytics(root, context, { back: () => renderAdminMenu(root, context) });
   root.querySelector('[data-admin-page="users"]').onclick = () => renderUserManager(root, context);
+  root.querySelector('[data-admin-page="notices"]').onclick = () => renderAnnouncementManager(root, context, () => renderAdminMenu(root, context));
   root.querySelector('[data-admin-page="reports"]').onclick = () => renderReports(root, context);
   root.querySelector("#enableAdminNotifications")?.addEventListener("click", async () => { await context.enableAdminNotifications(); renderAdminMenu(root, context); });
 }
@@ -311,6 +313,10 @@ async function openReportQuestionEditor(button, report, context, refresh) {
     if (!unit) throw new Error("対象の単元が見つかりません。");
     const items = Array.isArray(unit[report.type]) ? unit[report.type] : [];
     let index = Number(report.index);
+    if (report.questionId) {
+      const byId = items.findIndex((item) => item.id === report.questionId);
+      if (byId >= 0) index = byId;
+    }
     if (!Number.isInteger(index) || index < 0 || items[index]?.question !== report.question) {
       const matches = items.map((item, i) => item.question === report.question ? i : -1).filter((i) => i >= 0);
       if (matches.length === 1) {
@@ -447,7 +453,11 @@ async function renderReports(root, context) {
       const data = new Map();
       for (const item of resolvedReports) {
         const unit = units.get(JSON.stringify([item.subjectId, item.unitId]));
-        const questionIndex = Number(item.index);
+        let questionIndex = Number(item.index);
+        if (item.questionId && Array.isArray(unit?.[item.type])) {
+          const byId = unit[item.type].findIndex((question) => question.id === item.questionId);
+          if (byId >= 0) questionIndex = byId;
+        }
         const itemData = Number.isInteger(questionIndex) && questionIndex >= 0 ? unit?.[item.type]?.[questionIndex] : null;
         if (!itemData) continue;
         const answers = item.type === "quiz"

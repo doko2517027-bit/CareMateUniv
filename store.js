@@ -1,4 +1,4 @@
-import { auth, db } from "./firebase.js?v=7";
+import { auth, db } from "./firebase.js?v=8";
 import {
   addDoc,
   collection,
@@ -24,6 +24,7 @@ export const COLLECTIONS = Object.freeze({
   categories: "studyAppCategories",
   subjects: "studyAppSubjects",
   reports: "studyAppReports",
+  announcements: "studyAppAnnouncements",
 });
 
 export function cleanLines(value) {
@@ -90,11 +91,11 @@ export function normalizeUnitData(input = {}) {
     const fallback = Math.max(0, Number(item.answer) || 0);
     const answers = (Array.isArray(item.answers) && item.answers.length ? item.answers : [fallback])
       .map(Number).filter((value, index, values) => Number.isInteger(value) && value >= 0 && value < choices.length && values.indexOf(value) === index);
-    return { question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), ...imageFields(item) };
   }).filter((item) => item.question && item.choices.length >= 2 && item.answer < item.choices.length) : [];
   const fillBlank = Array.isArray(input.fill_blank) ? input.fill_blank.map((item) => {
     const answers = Array.isArray(item.answers) ? item.answers.map((answer) => safeText(answer, 300)).filter(Boolean) : cleanLines(item.answer);
-    return { question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), ...imageFields(item) };
   }).filter((item) => item.question && item.answers.length) : [];
   return {
     summary: Array.isArray(input.summary) ? input.summary.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.summary),
@@ -104,10 +105,25 @@ export function normalizeUnitData(input = {}) {
     today_question: null,
   };
 }
-export async function saveUnit(subjectId, { id, name, range = "", published = false, order = 0, ...content }) {
+export async function saveUnit(subjectId, { id, name, range = "", published = false, order = 0, _questionMaps = null, ...content }) {
   const data = { name: safeText(name, 100), range: safeText(range, 300), published: published === true, order: Number(order) || 0, ...normalizeUnitData(content), updatedAt: serverTimestamp() };
   if (!data.name) throw new Error("単元名を入力してください。");
-  if (id) { await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id), data, { merge: true }); return id; }
+  if (id) {
+    await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id), data, { merge: true });
+    if (_questionMaps) {
+      const changed = ["quiz", "fill_blank"].some((type) =>
+        _questionMaps[type]?.some((nextIndex, oldIndex) => nextIndex !== oldIndex));
+      if (changed) {
+        await callProtectedApi("cleanupStudyAppQuestionDeletion", {
+          subjectId,
+          unitId: id,
+          maps: _questionMaps,
+          total: data.quiz.length + data.fill_blank.length,
+        });
+      }
+    }
+    return id;
+  }
   return (await addDoc(collection(db, COLLECTIONS.subjects, subjectId, "units"), { ...data, createdAt: serverTimestamp() })).id;
 }
 export async function removeUnit(subjectId, unitId) { await deleteDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId)); }
@@ -133,8 +149,8 @@ export async function listProgress(uid) {
   const snapshot = await getDocs(collection(db, COLLECTIONS.users, uid, "progress"));
   return snapshot.docs.map((item) => ({ id: item.id, uid, ...item.data() }));
 }
-export async function reportQuestion({ uid, studentNumber = "", reporterName = "", subjectId, unitId, type, index, reason, details = "", question }) {
-  const reference = await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, reporterStudentNumber: safeText(studentNumber, 7), reporterName: safeText(reporterName, 80), subjectId, unitId, type, index, reason: safeText(reason, 80), details: safeText(details, 1200), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+export async function reportQuestion({ uid, studentNumber = "", reporterName = "", subjectId, unitId, type, index, questionId = "", reason, details = "", question }) {
+  const reference = await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, reporterStudentNumber: safeText(studentNumber, 7), reporterName: safeText(reporterName, 80), subjectId, unitId, type, index, questionId: safeText(questionId, 80), reason: safeText(reason, 80), details: safeText(details, 1200), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   const confirmation = await getDoc(reference);
   if (!confirmation.exists()) throw new Error("修正依頼の保存を確認できませんでした。もう一度お試しください。");
   return reference.id;
@@ -234,6 +250,83 @@ export async function updateQuestionReportStatus(reportId, status) {
     resolvedByUid: status === "resolved" ? auth.currentUser?.uid || "" : "",
     updatedAt: serverTimestamp(),
   });
+}
+
+function sortedAnnouncements(snapshot) {
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+    .sort((a, b) => Number(b.publishedAt?.seconds || b.createdAt?.seconds || 0) - Number(a.publishedAt?.seconds || a.createdAt?.seconds || 0));
+}
+export function watchAnnouncements({ admin = false } = {}, onChange, onError = () => {}) {
+  const source = admin
+    ? collection(db, COLLECTIONS.announcements)
+    : query(collection(db, COLLECTIONS.announcements), where("published", "==", true));
+  return onSnapshot(source, (snapshot) => onChange(sortedAnnouncements(snapshot)), onError);
+}
+export async function listAnnouncements({ admin = false } = {}) {
+  const source = admin
+    ? collection(db, COLLECTIONS.announcements)
+    : query(collection(db, COLLECTIONS.announcements), where("published", "==", true));
+  return sortedAnnouncements(await getDocs(source));
+}
+export async function saveAnnouncement({ id = "", title, bodyHtml, bodyText, attachments = [], published = true }) {
+  const data = {
+    title: safeText(title, 120),
+    bodyHtml: String(bodyHtml || "").slice(0, 30_000),
+    bodyText: safeText(bodyText, 10_000),
+    attachments: Array.isArray(attachments) ? attachments.slice(0, 12).map((item) => ({
+      type: item.type === "pdf" ? "pdf" : "image",
+      url: safeText(item.url, 1500),
+      publicId: safeText(item.publicId, 500),
+      name: safeText(item.name, 160),
+    })).filter((item) => /^https:\/\/res\.cloudinary\.com\//.test(item.url)) : [],
+    published: published === true,
+    updatedAt: serverTimestamp(),
+    updatedByUid: auth.currentUser?.uid || "",
+  };
+  if (!data.title || !data.bodyText) throw new Error("見出しと本文を入力してください。");
+  if (id) { await setDoc(doc(db, COLLECTIONS.announcements, id), data, { merge: true }); return id; }
+  return (await addDoc(collection(db, COLLECTIONS.announcements), {
+    ...data,
+    createdAt: serverTimestamp(),
+    publishedAt: serverTimestamp(),
+    authorUid: auth.currentUser?.uid || "",
+  })).id;
+}
+export async function removeAnnouncement(id) { await deleteDoc(doc(db, COLLECTIONS.announcements, id)); }
+export function watchAnnouncementReads(uid, onChange, onError = () => {}) {
+  return onSnapshot(collection(db, COLLECTIONS.users, uid, "announcementReads"), (snapshot) => {
+    onChange(new Set(snapshot.docs.map((item) => item.id)));
+  }, onError);
+}
+export async function markAnnouncementRead(uid, announcementId) {
+  await setDoc(doc(db, COLLECTIONS.users, uid, "announcementReads", announcementId), {
+    announcementId,
+    readAt: serverTimestamp(),
+  }, { merge: true });
+}
+export async function markAllAnnouncementsRead(uid, announcementIds) {
+  await Promise.all(announcementIds.slice(0, 500).map((id) => markAnnouncementRead(uid, id)));
+}
+
+async function callProtectedApi(method, data) {
+  const current = auth.currentUser;
+  if (!current) throw new Error("ログインしてください。");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(`https://caremate-auth.onrender.com/api/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${await current.getIdToken()}` },
+      body: JSON.stringify({ data }),
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body?.error?.message || "連動処理を完了できませんでした。");
+    return body.data;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("連動処理に時間がかかっています。もう一度保存してください。");
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
 export async function listUsersAndInvites() {

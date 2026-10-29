@@ -4,17 +4,15 @@ import {
   db,
   isAdminAuthEmail,
   sumsEmail,
-} from "./firebase.js?v=7";
+} from "./firebase.js?v=8";
 import {
   createUserWithEmailAndPassword,
   deleteUser,
   onAuthStateChanged,
   reload,
-  reauthenticateWithCredential,
   sendEmailVerification,
   signInWithCustomToken,
   signOut,
-  EmailAuthProvider,
   updatePassword,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 import {
@@ -27,6 +25,43 @@ import {
 const PROFILE_COLLECTION = "studyAppUsers";
 const INVITE_COLLECTION = "studyAppInvites";
 const STUDENT_NUMBER_COLLECTION = "studyAppStudentNumbers";
+const API_BASE = "https://caremate-auth.onrender.com/api";
+
+async function callApi(method, data, { authenticated = false, timeout = 20_000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const headers = { "content-type": "application/json" };
+    if (authenticated) {
+      if (!auth.currentUser) throw new Error("ログインしてください。");
+      headers.authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+    }
+    const response = await fetch(`${API_BASE}/${method}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ data }),
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(body?.error?.message || "処理を完了できませんでした。");
+      error.code = body?.error?.status || "unavailable";
+      error.userMessage = body?.error?.message || "";
+      throw error;
+    }
+    return body.data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("通信に時間がかかっています。少し待ってからもう一度お試しください。");
+      timeoutError.code = "unavailable";
+      timeoutError.userMessage = timeoutError.message;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function cleanStudentNumber(value) {
   const number = String(value || "").trim();
@@ -42,6 +77,7 @@ export function authReady() {
 
 export async function registerStudentAccount({ emailLocal, password }) {
   const result = await createUserWithEmailAndPassword(auth, sumsEmail(emailLocal), password);
+  auth.languageCode = "ja";
   await sendEmailVerification(result.user);
   return result.user;
 }
@@ -66,38 +102,26 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
 
 export async function loginAccount({ studentNumber, password }) {
   const number = cleanStudentNumber(studentNumber);
-  const response = await fetch("https://caremate-auth.onrender.com/api/authenticateStudyApp", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ data: { studentNumber: number, password } }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body?.data?.token) {
-    const error = new Error(body?.error?.message || "ログインできませんでした。");
-    error.code = body?.error?.status || "auth/invalid-credential";
+  try {
+    const data = await callApi("authenticateStudyApp", { studentNumber: number, password });
+    if (!data?.token) throw new Error("ログイン情報を確認できませんでした。");
+    return (await signInWithCustomToken(auth, data.token)).user;
+  } catch (error) {
+    if (["unauthenticated", "auth/invalid-credential"].includes(error?.code)) {
+      error.userMessage = "学籍番号かパスワードが間違っています。";
+    }
     throw error;
   }
-  return (await signInWithCustomToken(auth, body.data.token)).user;
 }
 
 export async function requestPasswordReset(studentNumber) {
   const number = cleanStudentNumber(studentNumber);
-  const response = await fetch("https://caremate-auth.onrender.com/api/requestStudyAppPasswordReset", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ data: { studentNumber: number } }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error(body?.error?.message || "再設定メールを送信できませんでした。");
-    error.code = body?.error?.status || "unavailable";
-    throw error;
-  }
-  return body.data;
+  return callApi("requestStudyAppPasswordReset", { studentNumber: number });
 }
 
 export async function resendVerification() {
   if (!auth.currentUser || isAdminAuthEmail(auth.currentUser.email)) throw new Error("このアカウントではメール確認を使用しません。");
+  auth.languageCode = "ja";
   await sendEmailVerification(auth.currentUser);
 }
 
@@ -183,10 +207,8 @@ export async function discardIncompleteAdminAccount() {
 }
 
 export async function changeOwnPassword(currentPassword, nextPassword) {
-  const user = auth.currentUser;
-  if (!user?.email) throw new Error("ログインしてください。");
-  await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
-  await updatePassword(user, nextPassword);
+  if (!auth.currentUser) throw new Error("ログインしてください。");
+  return callApi("changeStudyAppPassword", { currentPassword, nextPassword }, { authenticated: true });
 }
 
 export async function logout() { await signOut(auth); }
@@ -194,7 +216,9 @@ export async function logout() { await signOut(auth); }
 export function authErrorMessage(error) {
   const map = {
     "auth/email-already-in-use": "この学籍番号またはActive!Mailアドレスは登録済みです。ログインしてください。",
-    "auth/invalid-credential": "入力したログイン情報が違います。",
+    "auth/invalid-credential": "学籍番号かパスワードが間違っています。",
+    "unauthenticated": "学籍番号かパスワードが間違っています。",
+    "invalid-argument": "入力内容を確認してください。",
     "auth/invalid-email": "入力内容を確認してください。",
     "auth/too-many-requests": "試行回数が多すぎます。しばらく待ってからお試しください。",
     "auth/weak-password": "パスワードは8文字以上で設定してください。",
@@ -204,5 +228,8 @@ export function authErrorMessage(error) {
     "unavailable": "現在通信できません。少し待ってからお試しください。",
     "permission-denied": "この学籍番号はすでに登録済みか、利用できません。",
   };
-  return map[error?.code] || error?.message || "処理を完了できませんでした。";
+  if (error?.userMessage && /[ぁ-んァ-ヶ一-龠]/.test(error.userMessage)) return error.userMessage;
+  if (map[error?.code]) return map[error.code];
+  if (error?.message && /[ぁ-んァ-ヶ一-龠]/.test(error.message)) return error.message;
+  return "処理を完了できませんでした。時間をおいてもう一度お試しください。";
 }

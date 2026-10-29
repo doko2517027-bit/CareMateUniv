@@ -1,5 +1,5 @@
-import { auth } from "./firebase.js?v=7";
-import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=10";
+import { auth } from "./firebase.js?v=8";
+import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=11";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
@@ -185,7 +185,7 @@ async function showReport(context, subject, unit, item) {
   if (!report) return;
   try {
     context.loading(true, "修正依頼を送信中…");
-    await reportQuestion({ uid: auth.currentUser.uid, studentNumber: context.profile?.studentNumber, reporterName: context.profile?.name, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, reason: report.reason, details: report.details, question: item.question });
+    await reportQuestion({ uid: auth.currentUser.uid, studentNumber: context.profile?.studentNumber, reporterName: context.profile?.name, subjectId: subject.id, unitId: unit.id, type: item.type, index: item.sourceIndex, questionId: item.id || "", reason: report.reason, details: report.details, question: item.question });
     context.toast("管理者へ修正依頼を送信しました。");
   } catch (error) {
     context.toast(error?.message || "修正依頼を送信できませんでした。", true);
