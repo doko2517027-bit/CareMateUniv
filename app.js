@@ -10,12 +10,13 @@ import {
   getCurrentProfile,
   loginAccount,
   logout,
+  requestPasswordReset,
   refreshVerification,
   registerStudentAccount,
   resendVerification,
 } from "./auth.js";
 import { renderTestHome } from "./exam.js";
-import { parseUnitJson, renderAdmin } from "./admin.js";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -56,14 +57,14 @@ function chooseDialog(title, choices) {
     dialog.onclose = () => resolve(null);
   });
 }
-function formDialog(title, fields) {
+function formDialog(title, fields, submitLabel = "保存") {
   return new Promise((resolve) => {
     const inputHtml = fields.map((field) => {
       if (field.type === "checkbox") return `<label class="checkbox-row"><input name="${escapeHtml(field.name)}" type="checkbox" ${field.value ? "checked" : ""}>${escapeHtml(field.label)}</label>`;
       if (field.type === "select") return `<label>${escapeHtml(field.label)}<select name="${escapeHtml(field.name)}">${field.options.map((option) => `<option value="${escapeHtml(option.value)}" ${String(option.value) === String(field.value) ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>`;
       return `<label>${escapeHtml(field.label)}<input name="${escapeHtml(field.name)}" type="${escapeHtml(field.type || "text")}" value="${escapeHtml(field.value || "")}" ${field.required ? "required" : ""}></label>`;
     }).join("");
-    const dialog = openDialog(`<form id="modalForm" class="form-stack"><h2>${escapeHtml(title)}</h2>${inputHtml}<div class="inline-actions"><button id="modalCancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">保存</button></div></form>`);
+    const dialog = openDialog(`<form id="modalForm" class="form-stack"><h2>${escapeHtml(title)}</h2>${inputHtml}<div class="inline-actions"><button id="modalCancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">${escapeHtml(submitLabel)}</button></div></form>`);
     const done = (value) => { dialog.onclose = null; closeDialog(); resolve(value); };
     $("#modalCancel").onclick = () => done(null);
     $("#modalForm").onsubmit = (event) => { event.preventDefault(); const result = Object.fromEntries(new FormData(event.currentTarget)); fields.filter((field) => field.type === "checkbox").forEach((field) => { result[field.name] = event.currentTarget.elements[field.name].checked; }); done(result); };
@@ -71,34 +72,185 @@ function formDialog(title, fields) {
   });
 }
 
-function unitEditor(unit = {}) {
+function questionImageEditor(item = {}) {
+  const url = String(item.imageUrl || "");
+  const description = String(item.imageDescription || "");
+  return `<section class="question-image-editor">
+    <div class="editor-section-heading"><strong>問題画像</strong><small>任意・10MB以下</small></div>
+    <input data-role="image-file" type="file" accept="image/*">
+    <input data-role="image-url" type="hidden" value="${escapeHtml(url)}">
+    <input data-role="image-public-id" type="hidden" value="${escapeHtml(item.imagePublicId || "")}">
+    <label>画像の説明<textarea data-role="image-description" rows="2" placeholder="画像の内容を文章で説明">${escapeHtml(description)}</textarea></label>
+    <div class="question-image-preview" data-role="image-preview">${url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(description || "問題画像")}"><button class="danger-button" data-action="remove-image" type="button">画像を削除</button>` : `<small>画像は登録されていません。</small>`}</div>
+  </section>`;
+}
+
+function fillQuestionEditor(item = {}, index = 0) {
+  const answers = Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
+  return `<article class="question-editor" data-kind="fill">
+    <div class="editor-section-heading"><strong>穴埋め問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
+    <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
+    ${questionImageEditor(item)}
+    <label>模範解答の表示<input data-role="display-answer" value="${escapeHtml(item.answer || answers.join("・"))}" placeholder="例：心拍出量"></label>
+    <div class="answer-editor" data-role="fill-answers"><div class="editor-section-heading"><strong>穴埋め解答欄</strong><small>複数の空欄にも対応</small></div>${answers.map((answer, answerIndex) => `<div class="editor-input-row"><input data-role="fill-answer" value="${escapeHtml(answer)}" placeholder="解答 ${answerIndex + 1}"><button class="danger-button compact-button" data-action="delete-fill-answer" type="button" aria-label="解答欄を削除">−</button></div>`).join("")}</div>
+    <button class="secondary-button" data-action="add-fill-answer" type="button">＋ 解答欄を追加</button>
+    <label>解説<textarea data-role="explanation" rows="3" placeholder="答えの理由や補足を入力">${escapeHtml(item.explanation || "")}</textarea></label>
+  </article>`;
+}
+
+function quizChoiceEditor(choice = "", correct = false, index = 0) {
+  return `<div class="editor-input-row quiz-choice-row"><label class="correct-choice"><input data-role="quiz-correct" type="checkbox" ${correct ? "checked" : ""}><span>正解</span></label><input data-role="quiz-choice" value="${escapeHtml(choice)}" placeholder="選択肢 ${index + 1}"><button class="danger-button compact-button" data-action="delete-choice" type="button" aria-label="選択肢を削除">−</button></div>`;
+}
+
+function quizQuestionEditor(item = {}, index = 0) {
+  const choices = Array.isArray(item.choices) && item.choices.length ? item.choices : ["", "", "", ""];
+  const correct = Array.isArray(item.answers) && item.answers.length ? item.answers.map(Number) : [Number(item.answer) || 0];
+  return `<article class="question-editor" data-kind="quiz">
+    <div class="editor-section-heading"><strong>選択問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
+    <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
+    ${questionImageEditor(item)}
+    <div class="answer-editor" data-role="quiz-choices"><div class="editor-section-heading"><strong>選択肢・答え</strong><small>正解を複数選択できます</small></div>${choices.map((choice, choiceIndex) => quizChoiceEditor(choice, correct.includes(choiceIndex), choiceIndex)).join("")}</div>
+    <button class="secondary-button" data-action="add-choice" type="button">＋ 選択肢を追加</button>
+    <label>解説<textarea data-role="explanation" rows="3" placeholder="答えの理由や補足を入力">${escapeHtml(item.explanation || "")}</textarea></label>
+  </article>`;
+}
+
+function readQuestionImage(card) {
+  return {
+    imageUrl: card.querySelector('[data-role="image-url"]')?.value.trim() || "",
+    imagePublicId: card.querySelector('[data-role="image-public-id"]')?.value.trim() || "",
+    imageDescription: card.querySelector('[data-role="image-description"]')?.value.trim() || "",
+  };
+}
+
+async function uploadQuestionImage(file, editor, context) {
+  if (!String(file?.type || "").startsWith("image/")) throw new Error("画像ファイルを選択してください。");
+  if (file.size > 10 * 1024 * 1024) throw new Error("画像は10MB以下にしてください。");
+  const preview = editor.querySelector('[data-role="image-preview"]');
+  preview.innerHTML = `<small>画像をアップロードしています…</small>`;
+  const body = new FormData();
+  body.append("file", file);
+  body.append("upload_preset", "caremate_upload");
+  const response = await fetch("https://api.cloudinary.com/v1_1/vpctonjf/image/upload", { method: "POST", body });
+  const result = await response.json();
+  if (!response.ok || !result.secure_url) throw new Error(result.error?.message || "画像をアップロードできませんでした。");
+  editor.querySelector('[data-role="image-url"]').value = result.secure_url;
+  editor.querySelector('[data-role="image-public-id"]').value = result.public_id || "";
+  const description = editor.querySelector('[data-role="image-description"]').value.trim();
+  preview.innerHTML = `<img src="${escapeHtml(result.secure_url)}" alt="${escapeHtml(description || "問題画像")}"><button class="danger-button" data-action="remove-image" type="button">画像を削除</button>`;
+  context.toast("画像を追加しました。");
+}
+
+function unitEditor(unit = {}, context, target = null) {
   return new Promise((resolve) => {
-    const fill = JSON.stringify(unit.fill_blank || [], null, 2);
-    const quiz = JSON.stringify(unit.quiz || [], null, 2);
-    const dialog = openDialog(`<form id="unitEditorForm" class="form-stack admin-editor"><h2>${unit.id ? "単元を編集" : "単元を追加"}</h2><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label><label class="checkbox-row"><input name="published" type="checkbox" ${unit.published ? "checked" : ""}>学生に公開する</label><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label><label>穴埋め問題（JSON配列）<textarea name="fill_blank" class="code-area" rows="8">${escapeHtml(fill)}</textarea></label><label>四択問題（JSON配列）<textarea name="quiz" class="code-area" rows="10">${escapeHtml(quiz)}</textarea></label><details><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz を含む既存形式に対応します。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを入力欄へ反映</button></details><div class="inline-actions"><button id="unitCancel" class="secondary-button" type="button">キャンセル</button><button class="primary-button" type="submit">単元を保存</button></div><p id="unitStatus" class="status"></p></form>`);
-    const form = $("#unitEditorForm");
-    const done = (value) => { dialog.onclose = null; closeDialog(); resolve(value); };
+    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label><label class="checkbox-row"><input name="published" type="checkbox" ${unit.published ? "checked" : ""}>学生に公開する</label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz の既存形式を読み込めます。今日の一問は取り込みません。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><button class="primary-button" type="submit">問題を保存</button></div><p id="unitStatus" class="status"></p></form>`;
+    let dialog = null;
+    const host = target || $("#dialogContent");
+    if (target) host.innerHTML = editorHtml;
+    else dialog = openDialog(editorHtml);
+    const form = $("#unitEditorForm", host);
+    const fillList = $("#fillQuestionList");
+    const quizList = $("#quizQuestionList");
+    const updateLabels = () => {
+      fillList.querySelectorAll('[data-kind="fill"]').forEach((card, index) => { card.querySelector(".editor-section-heading strong").textContent = `穴埋め問題 ${index + 1}`; });
+      quizList.querySelectorAll('[data-kind="quiz"]').forEach((card, index) => { card.querySelector(".editor-section-heading strong").textContent = `選択問題 ${index + 1}`; });
+      $("#fillCount").textContent = `${fillList.children.length}問`;
+      $("#quizCount").textContent = `${quizList.children.length}問`;
+    };
+    const renderQuestions = (data = {}) => {
+      fillList.innerHTML = (data.fill_blank || []).map(fillQuestionEditor).join("");
+      quizList.innerHTML = (data.quiz || []).map(quizQuestionEditor).join("");
+      updateLabels();
+    };
+    const done = (value) => { if (dialog) { dialog.onclose = null; closeDialog(); } resolve(value); };
+    renderQuestions(unit);
     $("#unitCancel").onclick = () => done(null);
-    $("#applyJson").onclick = () => { try { const parsed = parseUnitJson($("#fullJson").value); form.elements.summary.value = parsed.summary.join("\n"); form.elements.important_points.value = parsed.important_points.join("\n"); form.elements.fill_blank.value = JSON.stringify(parsed.fill_blank, null, 2); form.elements.quiz.value = JSON.stringify(parsed.quiz, null, 2); status($("#unitStatus"), "JSONを反映しました。"); } catch (error) { status($("#unitStatus"), error.message, true); } };
+    $("#addFillQuestion").onclick = () => { fillList.insertAdjacentHTML("beforeend", fillQuestionEditor({}, fillList.children.length)); updateLabels(); };
+    $("#addQuizQuestion").onclick = () => { quizList.insertAdjacentHTML("beforeend", quizQuestionEditor({}, quizList.children.length)); updateLabels(); };
+    form.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-action]")?.dataset.action;
+      if (!action) return;
+      const card = event.target.closest(".question-editor");
+      if (action === "delete-question") { card.remove(); updateLabels(); }
+      if (action === "add-fill-answer") {
+        const area = card.querySelector('[data-role="fill-answers"]');
+        const index = area.querySelectorAll('[data-role="fill-answer"]').length;
+        area.insertAdjacentHTML("beforeend", `<div class="editor-input-row"><input data-role="fill-answer" placeholder="解答 ${index + 1}"><button class="danger-button compact-button" data-action="delete-fill-answer" type="button" aria-label="解答欄を削除">−</button></div>`);
+      }
+      if (action === "delete-fill-answer") {
+        const area = event.target.closest('[data-role="fill-answers"]');
+        if (area.querySelectorAll('[data-role="fill-answer"]').length > 1) event.target.closest(".editor-input-row").remove();
+        else context.toast("解答欄は1つ以上必要です。", true);
+      }
+      if (action === "add-choice") {
+        const area = card.querySelector('[data-role="quiz-choices"]');
+        const index = area.querySelectorAll(".quiz-choice-row").length;
+        area.insertAdjacentHTML("beforeend", quizChoiceEditor("", false, index));
+      }
+      if (action === "delete-choice") {
+        const area = event.target.closest('[data-role="quiz-choices"]');
+        if (area.querySelectorAll(".quiz-choice-row").length > 2) event.target.closest(".quiz-choice-row").remove();
+        else context.toast("選択肢は2つ以上必要です。", true);
+      }
+      if (action === "remove-image") {
+        const editor = event.target.closest(".question-image-editor");
+        editor.querySelector('[data-role="image-url"]').value = "";
+        editor.querySelector('[data-role="image-public-id"]').value = "";
+        editor.querySelector('[data-role="image-file"]').value = "";
+        editor.querySelector('[data-role="image-preview"]').innerHTML = `<small>画像は登録されていません。</small>`;
+      }
+    });
+    form.addEventListener("change", async (event) => {
+      if (!event.target.matches('[data-role="image-file"]') || !event.target.files?.[0]) return;
+      event.target.disabled = true;
+      try { await uploadQuestionImage(event.target.files[0], event.target.closest(".question-image-editor"), context); }
+      catch (error) { context.toast(error.message, true); event.target.closest('[data-role="image-preview"]').innerHTML = `<small>アップロードに失敗しました。</small>`; }
+      finally { event.target.disabled = false; }
+    });
+    $("#applyJson").onclick = () => {
+      try {
+        const parsed = parseUnitJson($("#fullJson").value);
+        form.elements.summary.value = parsed.summary.join("\n");
+        form.elements.important_points.value = parsed.important_points.join("\n");
+        renderQuestions(parsed);
+        status($("#unitStatus"), "JSONを編集画面へ反映しました。");
+      } catch (error) { status($("#unitStatus"), error.message, true); }
+    };
     form.onsubmit = (event) => {
       event.preventDefault();
-      try {
-        const data = new FormData(form);
-        done({ name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), published: form.elements.published.checked, summary: data.get("summary"), important_points: data.get("important_points"), fill_blank: JSON.parse(data.get("fill_blank") || "[]"), quiz: JSON.parse(data.get("quiz") || "[]") });
-      } catch { status($("#unitStatus"), "問題JSONの書式を確認してください。", true); }
+      const fill_blank = [...fillList.querySelectorAll('[data-kind="fill"]')].map((card) => {
+        const answers = [...card.querySelectorAll('[data-role="fill-answer"]')].map((input) => input.value.trim()).filter(Boolean);
+        return { question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+      });
+      const quiz = [...quizList.querySelectorAll('[data-kind="quiz"]')].map((card) => {
+        const rows = [...card.querySelectorAll(".quiz-choice-row")];
+        const choices = rows.map((row) => row.querySelector('[data-role="quiz-choice"]').value.trim());
+        const answers = rows.map((row, index) => row.querySelector('[data-role="quiz-correct"]').checked ? index : -1).filter((index) => index >= 0);
+        return { question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+      });
+      if (fill_blank.some((item) => !item.question || !item.answers.length)) { status($("#unitStatus"), "穴埋め問題の問題文と解答を入力してください。", true); return; }
+      if (quiz.some((item) => !item.question || item.choices.length < 2 || item.choices.some((choice) => !choice) || !Array.isArray(item.answers) && !Number.isInteger(item.answer))) { status($("#unitStatus"), "選択問題の問題文・2つ以上の選択肢・正解を入力してください。", true); return; }
+      const quizWithoutAnswer = [...quizList.querySelectorAll('[data-kind="quiz"]')].some((card) => !card.querySelector('[data-role="quiz-correct"]:checked'));
+      if (quizWithoutAnswer) { status($("#unitStatus"), "選択問題ごとに正解を1つ以上選んでください。", true); return; }
+      const data = new FormData(form);
+      done({ name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), published: form.elements.published.checked, summary: data.get("summary"), important_points: data.get("important_points"), fill_blank, quiz });
     };
-    dialog.onclose = () => resolve(null);
+    if (dialog) dialog.onclose = () => resolve(null);
   });
 }
 
-const context = { loading, toast, show, confirm: confirmDialog, choose: chooseDialog, form: formDialog, unitEditor, profile: null };
+const context = { loading, toast, show, confirm: confirmDialog, choose: chooseDialog, form: formDialog, unitEditor: (unit, target) => unitEditor(unit, context, target), profile: null };
 
 function setTheme(theme) {
   const dark = theme === "dark";
+  document.documentElement.classList.add("theme-changing");
   document.documentElement.classList.toggle("dark", dark);
   localStorage.setItem("caremateTestTheme", dark ? "dark" : "light");
   $("#themeToggle").textContent = dark ? "☀" : "☾";
-  $("meta[name=theme-color]").content = dark ? "#090909" : "#5b4bdb";
+  $("#themeToggle").setAttribute("aria-label", dark ? "ライトモードへ切り替える" : "ダークモードへ切り替える");
+  $("meta[name=theme-color]").content = dark ? "#050505" : "#08aeb8";
+  clearTimeout(setTheme.timer);
+  setTheme.timer = setTimeout(() => document.documentElement.classList.remove("theme-changing"), 320);
 }
 
 async function renderSettings(root) {
@@ -111,12 +263,13 @@ async function renderSettings(root) {
 async function navigate(page) {
   if (page === "admin" && profile.role !== "admin") page = "test";
   currentPage = page;
-  $("#pageTitle").textContent = page === "test" ? "テスト" : page === "settings" ? "設定" : "管理";
+  $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "settings" ? "設定" : "管理";
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   loading(true, "画面を読み込み中…");
   try {
     const root = $("#appContent");
     if (page === "test") await renderTestHome(root, context);
+    if (page === "analytics") await renderPersonalAnalytics(root, context);
     if (page === "settings") await renderSettings(root);
     if (page === "admin") renderAdmin(root, context);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -158,6 +311,15 @@ function bindEvents() {
   $("#showLogin").onclick = () => { $("#loginForm").hidden = false; $("#registerForm").hidden = true; $("#showLogin").classList.add("active"); $("#showRegister").classList.remove("active"); status($("#authStatus")); };
   $("#showRegister").onclick = () => { $("#loginForm").hidden = true; $("#registerForm").hidden = false; $("#showLogin").classList.remove("active"); $("#showRegister").classList.add("active"); status($("#authStatus")); };
   $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#forgotPassword").onclick = async () => {
+    const result = await formDialog("パスワードを忘れた方", [{ name: "studentNumber", label: "学籍番号", value: "", required: true }], "送信");
+    if (!result) return;
+    try {
+      loading(true, "再設定メールを送信中…");
+      await requestPasswordReset(result.studentNumber);
+      await show(`<h2>メールを確認してください</h2><p>登録されているActive!Mailへ、パスワード再設定用のメールを送信しました。</p><p class="hint">安全のため、登録の有無にかかわらず同じ案内を表示しています。メール内のリンクから新しいパスワードを設定してください。</p>`);
+    } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); }
+  };
   $("#registerForm").onsubmit = async (event) => {
     event.preventDefault();
     const studentNumber = $("#registerStudentNumber").value.trim();

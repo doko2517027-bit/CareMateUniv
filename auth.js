@@ -80,6 +80,22 @@ export async function loginAccount({ studentNumber, password }) {
   return (await signInWithCustomToken(auth, body.data.token)).user;
 }
 
+export async function requestPasswordReset(studentNumber) {
+  const number = cleanStudentNumber(studentNumber);
+  const response = await fetch("https://caremate-auth.onrender.com/api/requestStudyAppPasswordReset", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: { studentNumber: number } }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body?.error?.message || "再設定メールを送信できませんでした。");
+    error.code = body?.error?.status || "unavailable";
+    throw error;
+  }
+  return body.data;
+}
+
 export async function resendVerification() {
   if (!auth.currentUser || isAdminAuthEmail(auth.currentUser.email)) throw new Error("このアカウントではメール確認を使用しません。");
   await sendEmailVerification(auth.currentUser);
@@ -184,6 +200,8 @@ export function authErrorMessage(error) {
     "auth/weak-password": "パスワードは8文字以上で設定してください。",
     "auth/network-request-failed": "通信できませんでした。接続を確認してください。",
     "auth/requires-recent-login": "安全のため、ログインし直してから操作してください。",
+    "resource-exhausted": "試行回数が多すぎます。15分後にお試しください。",
+    "unavailable": "現在通信できません。少し待ってからお試しください。",
     "permission-denied": "この学籍番号はすでに登録済みか、利用できません。",
   };
   return map[error?.code] || error?.message || "処理を完了できませんでした。";

@@ -72,26 +72,28 @@ export async function getUnit(subjectId, unitId) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 export function normalizeUnitData(input = {}) {
-  const quiz = Array.isArray(input.quiz) ? input.quiz.map((item) => ({
-    question: safeText(item.question, 1000), choices: Array.isArray(item.choices) ? item.choices.map((choice) => safeText(choice, 500)).filter(Boolean) : [],
-    answer: Math.max(0, Number(item.answer) || 0), answers: Array.isArray(item.answers) ? item.answers.map(Number).filter(Number.isInteger) : [],
-    explanation: safeText(item.explanation, 2000),
-  })).filter((item) => item.question && item.choices.length >= 2 && item.answer < item.choices.length) : [];
-  const fillBlank = Array.isArray(input.fill_blank) ? input.fill_blank.map((item) => ({
-    question: safeText(item.question, 1000), answers: Array.isArray(item.answers) ? item.answers.map((answer) => safeText(answer, 300)).filter(Boolean) : cleanLines(item.answer),
-    explanation: safeText(item.explanation, 2000),
-  })).filter((item) => item.question && item.answers.length) : [];
-  let today = input.today_question && typeof input.today_question === "object" ? input.today_question : null;
-  if (today) {
-    const normalized = normalizeUnitData({ quiz: [today] }).quiz[0];
-    today = normalized || null;
-  }
+  const imageFields = (item) => ({
+    imageUrl: safeText(item.imageUrl, 1500),
+    imagePublicId: safeText(item.imagePublicId, 500),
+    imageDescription: safeText(item.imageDescription, 1000),
+  });
+  const quiz = Array.isArray(input.quiz) ? input.quiz.map((item) => {
+    const choices = Array.isArray(item.choices) ? item.choices.map((choice) => safeText(choice, 500)).filter(Boolean) : [];
+    const fallback = Math.max(0, Number(item.answer) || 0);
+    const answers = (Array.isArray(item.answers) && item.answers.length ? item.answers : [fallback])
+      .map(Number).filter((value, index, values) => Number.isInteger(value) && value >= 0 && value < choices.length && values.indexOf(value) === index);
+    return { question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+  }).filter((item) => item.question && item.choices.length >= 2 && item.answer < item.choices.length) : [];
+  const fillBlank = Array.isArray(input.fill_blank) ? input.fill_blank.map((item) => {
+    const answers = Array.isArray(item.answers) ? item.answers.map((answer) => safeText(answer, 300)).filter(Boolean) : cleanLines(item.answer);
+    return { question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+  }).filter((item) => item.question && item.answers.length) : [];
   return {
     summary: Array.isArray(input.summary) ? input.summary.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.summary),
     important_points: Array.isArray(input.important_points) ? input.important_points.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.important_points),
     fill_blank: fillBlank,
     quiz,
-    today_question: today,
+    today_question: null,
   };
 }
 export async function saveUnit(subjectId, { id, name, range = "", published = false, order = 0, ...content }) {
@@ -118,6 +120,10 @@ export async function listAllProgress() {
     uid: item.ref.parent.parent?.id || "",
     ...item.data(),
   }));
+}
+export async function listProgress(uid) {
+  const snapshot = await getDocs(collection(db, COLLECTIONS.users, uid, "progress"));
+  return snapshot.docs.map((item) => ({ id: item.id, uid, ...item.data() }));
 }
 export async function reportQuestion({ uid, subjectId, unitId, type, index, reason, question }) {
   await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, subjectId, unitId, type, index, reason: safeText(reason, 80), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp() });
@@ -155,5 +161,19 @@ export async function deleteStudyUser(uid) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.error?.message || "登録情報を削除できませんでした。");
+  return body.data;
+}
+
+export async function resetStudyUserPassword(targetUid, nextPassword) {
+  const current = auth.currentUser;
+  if (!current) throw new Error("ログインしてください。");
+  const token = await current.getIdToken();
+  const response = await fetch("https://caremate-auth.onrender.com/api/adminResetStudyAppPassword", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ data: { targetUid, nextPassword } }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body?.error?.message || "パスワードを変更できませんでした。");
   return body.data;
 }
