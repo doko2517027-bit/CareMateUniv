@@ -91,6 +91,27 @@ async function enableAdminNotifications() {
   else toast("ブラウザ設定で通知を許可してください。", true);
   return permission;
 }
+
+function promptRegistrationNotificationPermission() {
+  if (!("Notification" in window)) return Promise.resolve("unsupported");
+  if (Notification.permission !== "default") return Promise.resolve(Notification.permission);
+  return new Promise((resolve) => {
+    const dialog = openDialog(`<section class="notification-onboarding"><span class="hero-badge">登録完了</span><h2>通知を許可しますか？</h2><p>新しいお知らせや、管理者の場合は問題の修正依頼をすぐに確認できます。通知はブラウザの設定からいつでも変更できます。</p><div class="inline-actions"><button id="notificationLater" class="secondary-button" type="button">あとで</button><button id="notificationAllow" class="primary-button" type="button">通知を許可</button></div></section>`);
+    const done = (value) => { dialog.onclose = null; closeDialog(); resolve(value); };
+    $("#notificationLater").onclick = () => done("default");
+    $("#notificationAllow").onclick = async () => {
+      try {
+        const permission = await Notification.requestPermission();
+        toast(permission === "granted" ? "通知を有効にしました。" : "通知は許可されませんでした。", permission !== "granted");
+        done(permission);
+      } catch (_) {
+        toast("通知設定を開けませんでした。ブラウザ設定をご確認ください。", true);
+        done("error");
+      }
+    };
+    dialog.onclose = () => resolve("default");
+  });
+}
 function formDialog(title, fields, submitLabel = "保存") {
   return new Promise((resolve) => {
     const inputHtml = fields.map((field) => {
@@ -352,7 +373,7 @@ function startStudentNoticeWatch() {
   latestAnnouncements = [];
   latestAnnouncementReads = new Set();
   updateNoticeBadge();
-  if (profile?.role === "admin" || !auth.currentUser) return;
+  if (!auth.currentUser) return;
   let initialized = false;
   stopNoticeBadgeWatch = watchAnnouncements({}, (items) => {
     latestAnnouncements = items;
@@ -390,7 +411,6 @@ async function navigate(page) {
   stopStudyUnitWatch();
   stopNoticeViewWatch();
   if (page === "admin" && profile.role !== "admin") page = "test";
-  if (page === "notices" && profile.role === "admin") page = "admin";
   currentPage = page;
   $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "notices" ? "お知らせ" : page === "settings" ? "設定" : "管理";
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
@@ -411,12 +431,12 @@ async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
   $("#adminNav").hidden = profile.role !== "admin";
-  $("#noticesNav").hidden = profile.role === "admin";
+  $("#noticesNav").hidden = false;
   startAdminReportWatch();
   startStudentNoticeWatch();
   showOnly("#appShell");
   const requestedPage = new URLSearchParams(location.search).get("page");
-  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : requestedPage === "notices" && profile.role !== "admin" ? "notices" : "test");
+  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : requestedPage === "notices" ? "notices" : "test");
 }
 
 async function routeAuthenticatedUser(user) {
@@ -480,7 +500,7 @@ function bindEvents() {
   $("#checkVerification").onclick = async () => { try { loading(true, "確認状態を取得中…"); const user = await refreshVerification(); if (!user?.emailVerified) { status($("#verifyStatus"), "まだ確認が完了していません。メール内のリンクを開いてください。", true); return; } await routeAuthenticatedUser(user); } catch (error) { status($("#verifyStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#resendVerification").onclick = async () => { try { await resendVerification(); status($("#verifyStatus"), "確認メールを再送しました。"); } catch (error) { status($("#verifyStatus"), authErrorMessage(error), true); } };
   $("#verifyLogout").onclick = $("#activationLogout").onclick = async () => { sessionStorage.removeItem("caremateTestPending"); await logout(); location.reload(); };
-  $("#activationForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "利用登録を完了中…"); const found = await completeStudentRegistration($("#activationStudentNumber").value); sessionStorage.removeItem("caremateTestPending"); await enterApp(found); } catch (error) { status($("#activationStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#activationForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "利用登録を完了中…"); const found = await completeStudentRegistration($("#activationStudentNumber").value); sessionStorage.removeItem("caremateTestPending"); await enterApp(found); promptRegistrationNotificationPermission(); } catch (error) { status($("#activationStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#adminPasswordForm").onsubmit = async (event) => {
     event.preventDefault();
     const nextPassword = $("#adminNewPassword").value;
@@ -491,6 +511,7 @@ function bindEvents() {
       const found = await finishAdminRegistration({ studentNumber: pending.studentNumber, registrationCode: pending.registrationCode, nextPassword });
       sessionStorage.removeItem("caremateTestPending");
       await enterApp(found);
+      promptRegistrationNotificationPermission();
     } catch (error) { status($("#adminPasswordStatus"), authErrorMessage(error), true); } finally { loading(false); }
   };
   $("#adminRegistrationCancel").onclick = async () => { sessionStorage.removeItem("caremateTestPending"); await discardIncompleteAdminAccount(); location.reload(); };
