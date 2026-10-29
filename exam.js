@@ -81,6 +81,9 @@ async function renderQuestions(root, context, subject, unit) {
   const items = allQuestions(unit);
   if (!items.length) { context.toast("解答できる問題がまだありません。"); return; }
   const oldProgress = await getProgress(auth.currentUser.uid, subject.id, unit.id);
+  const questionStats = structuredClone(oldProgress.questionStats || {});
+  let attemptCount = Number(oldProgress.attemptCount || 0);
+  let correctCount = Number(oldProgress.correctCount || 0);
   let position = 0;
   if (Number(oldProgress.position) > 0 && Number(oldProgress.position) < items.length) {
     const resume = await context.confirm(`${Number(oldProgress.position) + 1}問目から続けますか？`);
@@ -90,11 +93,34 @@ async function renderQuestions(root, context, subject, unit) {
   const show = () => {
     const item = items[position];
     const isQuiz = item.type === "quiz";
+    let locked = false;
     root.innerHTML = `${pageHeader(subject, unit, "問題演習")}<section class="panel question-box"><span class="question-number">${position + 1} / ${items.length}・${item.kind}</span><h2 class="question-text">${escapeHtml(item.question)}</h2>${isQuiz ? `<div class="choice-list">${item.choices.map((choice, index) => `<button class="choice-button" data-choice="${index}" type="button"><b>${index + 1}.</b> ${escapeHtml(choice)}</button>`).join("")}</div>` : `<label class="field-label">答え<input id="fillAnswer" class="field" autocomplete="off"><button id="answerButton" class="primary-button" type="button">答え合わせ</button></label>`}<div id="resultArea"></div></section>`;
     bindBack(root, context, subject);
     const submit = async (given) => {
+      if (locked) return;
+      locked = true;
       const accepted = isQuiz ? Number(given) === Number(item.answer) : (item.answers || []).some((answer) => String(answer).trim().toLowerCase() === String(given).trim().toLowerCase());
       answers.push(accepted);
+      const questionKey = `${item.type}:${item.sourceIndex}`;
+      const previous = questionStats[questionKey] || {};
+      questionStats[questionKey] = {
+        attempts: Number(previous.attempts || 0) + 1,
+        correct: Number(previous.correct || 0) + (accepted ? 1 : 0),
+      };
+      attemptCount += 1;
+      correctCount += accepted ? 1 : 0;
+      try {
+        await saveProgress(auth.currentUser.uid, subject.id, unit.id, {
+          questionStats,
+          attemptCount,
+          correctCount,
+          total: items.length,
+        });
+      } catch (error) {
+        locked = false;
+        context.toast(error.message || "学習結果を保存できませんでした。", true);
+        return;
+      }
       if (isQuiz) root.querySelectorAll(".choice-button").forEach((button) => { button.disabled = true; const value = Number(button.dataset.choice); if (value === Number(item.answer)) button.classList.add("correct"); else if (value === Number(given)) button.classList.add("wrong"); });
       const result = root.querySelector("#resultArea");
       result.innerHTML = `<div class="answer-panel"><strong>${accepted ? "正解" : "不正解"}</strong><p>答え：${escapeHtml(item.displayAnswer)}</p><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><div class="inline-actions"><button id="reportButton" class="secondary-button" type="button">違います</button><button id="nextButton" class="primary-button" type="button">${position + 1 < items.length ? "次の問題" : "結果を見る"}</button></div>`;

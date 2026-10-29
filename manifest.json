@@ -1,9 +1,16 @@
 {
   "name": "CareMateUniv",
-  "short_name": "CareMateUniv",
+  "short_name": "CMU",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f7f6fb",
   "theme_color": "#5b4bdb",
-  "icons": []
+  "icons": [
+    {
+      "src": "assets/cmu-icon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

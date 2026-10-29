@@ -6,6 +6,7 @@ import {
   createAdminInvite,
   deleteStudyUser,
   getUnit,
+  listAllProgress,
   listCategories,
   listSubjects,
   listUnits,
@@ -25,11 +26,12 @@ const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP
 
 export function renderAdmin(root, context) {
   const primary = context.profile?.studentNumber === "2510044";
-  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>CareMateUniv 管理</h2><p>管理者の登録、利用者管理、テスト問題の作成・公開を行います。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section><div class="admin-tabs"><button class="active" data-tab="tests">テスト管理</button><button data-tab="users">ユーザー管理</button><button data-tab="reports">修正依頼</button></div><div id="adminBody"></div>`;
+  root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>CareMateUniv 管理</h2><p>管理者の登録、利用者管理、テスト問題の作成・公開を行います。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section><div class="admin-tabs"><button class="active" data-tab="tests">テスト管理</button><button data-tab="analytics">学習分析</button><button data-tab="users">ユーザー管理</button><button data-tab="reports">修正依頼</button></div><div id="adminBody"></div>`;
   const body = root.querySelector("#adminBody");
   const select = (tab) => {
     root.querySelectorAll("[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
     if (tab === "tests") renderTestManager(body, context);
+    if (tab === "analytics") renderAnalytics(body, context);
     if (tab === "users") renderUserManager(body, context);
     if (tab === "reports") renderReports(body);
   };
@@ -84,6 +86,70 @@ async function renderUserManager(root, context) {
     await cancelInvite(button.dataset.cancel);
     renderUserManager(root, context);
   }));
+}
+
+async function renderAnalytics(root, context) {
+  root.innerHTML = `<section class="panel"><div class="panel-header"><div><h2>学生全体の学習分析</h2><p>問題ごとの正答率、解答回数、苦手傾向を確認できます。</p></div><span class="chip">集計中</span></div><div class="empty">学習結果を読み込んでいます…</div></section>`;
+  try {
+    const [subjects, progress] = await Promise.all([listSubjects(), listAllProgress()]);
+    const unitsBySubject = new Map();
+    await Promise.all(subjects.map(async (subject) => {
+      unitsBySubject.set(subject.id, await listUnits(subject.id));
+    }));
+    const subjectMap = new Map(subjects.map((item) => [item.id, item]));
+    const unitMap = new Map();
+    unitsBySubject.forEach((units, subjectId) => units.forEach((unit) => unitMap.set(`${subjectId}/${unit.id}`, unit)));
+
+    const users = new Set();
+    const questions = new Map();
+    let totalAttempts = 0;
+    let totalCorrect = 0;
+    let legacySessions = 0;
+    progress.forEach((entry) => {
+      if (entry.uid) users.add(entry.uid);
+      const stats = entry.questionStats && typeof entry.questionStats === "object" ? entry.questionStats : {};
+      if (!Object.keys(stats).length && Number(entry.answered || 0) > 0) legacySessions += 1;
+      Object.entries(stats).forEach(([questionKey, value]) => {
+        const attempts = Math.max(0, Number(value?.attempts || 0));
+        const correct = Math.min(attempts, Math.max(0, Number(value?.correct || 0)));
+        if (!attempts) return;
+        const key = `${entry.subjectId}/${entry.unitId}/${questionKey}`;
+        const aggregate = questions.get(key) || { subjectId: entry.subjectId, unitId: entry.unitId, questionKey, attempts: 0, correct: 0 };
+        aggregate.attempts += attempts;
+        aggregate.correct += correct;
+        questions.set(key, aggregate);
+        totalAttempts += attempts;
+        totalCorrect += correct;
+      });
+    });
+
+    const rows = [...questions.values()].map((item) => {
+      const unit = unitMap.get(`${item.subjectId}/${item.unitId}`) || {};
+      const [type, rawIndex] = item.questionKey.split(":");
+      const source = type === "quiz" ? unit.quiz : unit.fill_blank;
+      const question = Array.isArray(source) ? source[Number(rawIndex)]?.question : "";
+      return {
+        ...item,
+        subject: subjectMap.get(item.subjectId)?.name || "削除済み科目",
+        unit: unit.name || "削除済み単元",
+        question: question || `問題 ${Number(rawIndex) + 1}`,
+        rate: item.attempts ? Math.round((item.correct / item.attempts) * 100) : 0,
+      };
+    }).sort((a, b) => a.rate - b.rate || b.attempts - a.attempts);
+    const overall = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
+    const fillRows = rows.filter((item) => item.questionKey.startsWith("fill_blank:"));
+    const quizRows = rows.filter((item) => item.questionKey.startsWith("quiz:"));
+    const typeRate = (items) => {
+      const attempts = items.reduce((sum, item) => sum + item.attempts, 0);
+      const correct = items.reduce((sum, item) => sum + item.correct, 0);
+      return attempts ? Math.round((correct / attempts) * 100) : 0;
+    };
+    const rowHtml = rows.map((item) => `<article class="analytics-row"><div class="analytics-copy"><span>${escapeHtml(item.subject)} / ${escapeHtml(item.unit)}</span><strong>${escapeHtml(item.question)}</strong><small>${item.correct} / ${item.attempts}回正解</small></div><div class="analytics-rate"><b>${item.rate}%</b><span><i style="width:${item.rate}%"></i></span></div></article>`).join("");
+    root.innerHTML = `<section class="analytics-summary"><article><span>参加学生</span><strong>${users.size}</strong><small>人</small></article><article><span>全体正答率</span><strong>${overall}</strong><small>%</small></article><article><span>総解答数</span><strong>${totalAttempts}</strong><small>回</small></article><article><span>要復習</span><strong>${rows.filter((item) => item.rate < 60).length}</strong><small>問</small></article></section><section class="panel"><div class="panel-header"><div><h2>形式別の正答率</h2><p>穴埋めと四択の理解度を比較します。</p></div></div><div class="type-chart"><div><b>穴埋め</b><span><i style="width:${typeRate(fillRows)}%"></i></span><strong>${typeRate(fillRows)}%</strong></div><div><b>四択</b><span><i style="width:${typeRate(quizRows)}%"></i></span><strong>${typeRate(quizRows)}%</strong></div></div></section><section class="panel"><div class="panel-header"><div><h2>問題ごとの正答率</h2><p>正答率の低い問題から表示しています。</p></div><span class="chip">${rows.length}問</span></div>${rowHtml || `<div class="empty"><strong>問題別データはまだありません</strong><p>学生が次に問題へ解答すると自動集計されます。</p></div>`}${legacySessions ? `<p class="hint">旧形式の学習記録 ${legacySessions}件は、問題単位の内訳がないため全体集計に含めていません。</p>` : ""}</section>`;
+  } catch (error) {
+    root.innerHTML = `<section class="panel"><div class="empty"><strong>分析データを読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryAnalytics" class="primary-button" type="button">再読み込み</button></div></section>`;
+    root.querySelector("#retryAnalytics")?.addEventListener("click", () => renderAnalytics(root, context));
+  }
 }
 
 async function renderTestManager(root, context) {

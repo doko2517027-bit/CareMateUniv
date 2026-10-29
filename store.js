@@ -2,6 +2,7 @@ import { auth, db } from "./firebase.js";
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -109,6 +110,14 @@ export async function getProgress(uid, subjectId, unitId) {
 export async function saveProgress(uid, subjectId, unitId, patch) {
   const id = `${subjectId}_${unitId}`;
   await setDoc(doc(db, COLLECTIONS.users, uid, "progress", id), { ...patch, subjectId, unitId, updatedAt: serverTimestamp() }, { merge: true });
+}
+export async function listAllProgress() {
+  const snapshot = await getDocs(collectionGroup(db, "progress"));
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    uid: item.ref.parent.parent?.id || "",
+    ...item.data(),
+  }));
 }
 export async function reportQuestion({ uid, subjectId, unitId, type, index, reason, question }) {
   await addDoc(collection(db, COLLECTIONS.reports), { reporterUid: uid, subjectId, unitId, type, index, reason: safeText(reason, 80), question: safeText(question, 1000), status: "open", createdAt: serverTimestamp() });

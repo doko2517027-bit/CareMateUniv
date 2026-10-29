@@ -157,7 +157,7 @@ async function routeAuthenticatedUser(user) {
 function bindEvents() {
   $("#showLogin").onclick = () => { $("#loginForm").hidden = false; $("#registerForm").hidden = true; $("#showLogin").classList.add("active"); $("#showRegister").classList.remove("active"); status($("#authStatus")); };
   $("#showRegister").onclick = () => { $("#loginForm").hidden = true; $("#registerForm").hidden = false; $("#showLogin").classList.remove("active"); $("#showRegister").classList.add("active"); status($("#authStatus")); };
-  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ identifier: $("#loginIdentifier").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#registerForm").onsubmit = async (event) => {
     event.preventDefault();
     const studentNumber = $("#registerStudentNumber").value.trim();

@@ -3,7 +3,6 @@ import {
   auth,
   db,
   isAdminAuthEmail,
-  PRIMARY_ADMIN_STUDENT_NUMBER,
   sumsEmail,
 } from "./firebase.js";
 import {
@@ -13,7 +12,7 @@ import {
   reload,
   reauthenticateWithCredential,
   sendEmailVerification,
-  signInWithEmailAndPassword,
+  signInWithCustomToken,
   signOut,
   EmailAuthProvider,
   updatePassword,
@@ -33,16 +32,6 @@ function cleanStudentNumber(value) {
   const number = String(value || "").trim();
   if (!/^\d{7}$/.test(number)) throw new Error("学籍番号は7桁で入力してください。");
   return number;
-}
-
-function loginEmail(identifier) {
-  const value = String(identifier || "").trim().toLowerCase();
-  // The fixed primary administrator keeps the existing verified Active!Mail
-  // Firebase identity so its UID, password, and stored data are not migrated.
-  if (value === PRIMARY_ADMIN_STUDENT_NUMBER) return sumsEmail(value);
-  if (/^\d{7}$/.test(value)) return adminAuthEmail(value);
-  if (value.endsWith("@sums.ac.jp")) return sumsEmail(value.slice(0, -"@sums.ac.jp".length));
-  return sumsEmail(value);
 }
 
 export function authReady() {
@@ -75,8 +64,20 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
   }
 }
 
-export async function loginAccount({ identifier, password }) {
-  return (await signInWithEmailAndPassword(auth, loginEmail(identifier), password)).user;
+export async function loginAccount({ studentNumber, password }) {
+  const number = cleanStudentNumber(studentNumber);
+  const response = await fetch("https://caremate-auth.onrender.com/api/authenticateStudyApp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: { studentNumber: number, password } }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body?.data?.token) {
+    const error = new Error(body?.error?.message || "ログインできませんでした。");
+    error.code = body?.error?.status || "auth/invalid-credential";
+    throw error;
+  }
+  return (await signInWithCustomToken(auth, body.data.token)).user;
 }
 
 export async function resendVerification() {
