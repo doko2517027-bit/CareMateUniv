@@ -421,7 +421,7 @@ async function openReportQuestionEditor(button, report, context, refresh) {
 }
 
 async function renderReports(root, context) {
-  root.innerHTML = `${adminHeader("問題の修正依頼", "学生・管理者から届いた報告", () => renderAdminMenu(root, context))}<div class="report-view-switch" role="tablist" aria-label="修正依頼の状態"><button class="active" data-report-view="open" type="button">未対応 <b id="openReportCount">0</b></button><button data-report-view="resolved" type="button">修正済み <b id="resolvedReportCount">0</b></button></div><section class="panel"><div class="panel-header"><div><h2 id="reportListTitle">未対応の修正依頼</h2><p>「問題・答え・解説を修正」から直接編集して保存できます。確認のみの場合は「修正済みにする」を利用してください。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
+  root.innerHTML = `${adminHeader("問題の修正依頼", "学生・管理者から届いた報告", () => renderAdminMenu(root, context))}<div class="report-view-switch" role="tablist" aria-label="修正依頼の状態"><button class="active" data-report-view="open" type="button">未対応 <b id="openReportCount">0</b></button><button data-report-view="resolved" type="button">修正済み <b id="resolvedReportCount">0</b></button></div><section class="panel"><div class="panel-header"><div><h2 id="reportListTitle">未対応の修正依頼</h2><p>「問題・答え・解説を修正」から直接編集して保存できます。内容を変更せず依頼のみ完了する場合は「修正せず対応済み」を選んでください。</p></div></div><div id="reportList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const reportList = root.querySelector("#reportList");
   try {
@@ -430,12 +430,47 @@ async function renderReports(root, context) {
     const resolvedReports = reports.filter((item) => item.status === "resolved");
     root.querySelector("#openReportCount").textContent = openReports.length;
     root.querySelector("#resolvedReportCount").textContent = resolvedReports.length;
-    const showList = (view) => {
+    let selectedReportView = "open";
+    let currentResolvedData = null;
+    const loadCurrentResolved = async () => {
+      if (currentResolvedData) return currentResolvedData;
+      const targets = new Map();
+      for (const item of resolvedReports) {
+        if (item.subjectId && item.unitId && ["quiz", "fill_blank"].includes(item.type)) {
+          targets.set(JSON.stringify([item.subjectId, item.unitId]), [item.subjectId, item.unitId]);
+        }
+      }
+      const units = new Map(await Promise.all([...targets.entries()].map(async ([key, [subjectId, unitId]]) => {
+        try { return [key, await getUnit(subjectId, unitId)]; }
+        catch { return [key, null]; }
+      })));
+      const data = new Map();
+      for (const item of resolvedReports) {
+        const unit = units.get(JSON.stringify([item.subjectId, item.unitId]));
+        const questionIndex = Number(item.index);
+        const itemData = Number.isInteger(questionIndex) && questionIndex >= 0 ? unit?.[item.type]?.[questionIndex] : null;
+        if (!itemData) continue;
+        const answers = item.type === "quiz"
+          ? (Array.isArray(itemData.answers) && itemData.answers.length ? itemData.answers : [itemData.answer])
+              .map((i) => itemData.choices?.[i]).filter(Boolean).join(" / ")
+          : itemData.answer || (itemData.answers || []).join("・");
+        data.set(item.id, { question: itemData.question, answer: answers, explanation: itemData.explanation || "" });
+      }
+      currentResolvedData = data;
+      return data;
+    };
+    const showList = async (view) => {
+      selectedReportView = view;
       const resolved = view === "resolved";
       const items = resolved ? resolvedReports : openReports;
       root.querySelector("#reportListTitle").textContent = resolved ? "修正済み一覧" : "未対応の修正依頼";
       root.querySelectorAll("[data-report-view]").forEach((button) => button.classList.toggle("active", button.dataset.reportView === view));
-      reportList.innerHTML = items.length ? items.map((item) => `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p class="report-question">${escapeHtml(item.question)}</p>${resolved && item.originalQuestion && item.originalQuestion !== item.question ? `<p class="hint"><b>報告時の問題文：</b>${escapeHtml(item.originalQuestion)}</p>` : ""}${resolved && Object.prototype.hasOwnProperty.call(item, "correctedAnswer") ? `<div class="report-correction-summary"><strong>保存した修正内容</strong><p><b>答え：</b>${escapeHtml(item.correctedAnswer || "")}</p><p><b>解説：</b>${escapeHtml(item.correctedExplanation || "解説なし")}</p></div>` : ""}${item.details ? `<div class="report-details"><b>修正内容</b><p>${escapeHtml(item.details)}</p></div>` : `<p class="hint">修正内容の入力はありません。</p>`}<p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><div class="report-actions"><span class="chip ${resolved ? "" : "danger"}">${resolved ? "修正済み" : "未対応"}</span>${resolved ? "" : `<button class="secondary-button compact-button" data-report-edit="${escapeHtml(item.id)}" type="button">問題・答え・解説を修正</button>`}<button class="${resolved ? "secondary-button" : "primary-button"} compact-button" data-report-status="${escapeHtml(item.id)}" data-next-status="${resolved ? "open" : "resolved"}" type="button">${resolved ? "未対応へ戻す" : "修正済みにする"}</button></div></article>`).join("") : `<div class="empty">${resolved ? "修正済みの依頼はありません。" : "未対応の修正依頼はありません。"}</div>`;
+      if (resolved && items.length) {
+        reportList.innerHTML = '<div class="empty">現在の掲載内容を確認中…</div>';
+        await loadCurrentResolved();
+        if (selectedReportView !== view || !reportList.isConnected) return;
+      }
+       reportList.innerHTML = items.length ? items.map((item) => { const current = resolved ? currentResolvedData?.get(item.id) : null; return `<article class="admin-row report-row"><div><strong>${escapeHtml(item.reason)}</strong><p class="report-question">${escapeHtml(current?.question || item.question)}</p>${resolved && current ? `<div class="report-correction-summary"><strong>現在掲載されている内容</strong><p><b>答え：</b>${escapeHtml(current.answer)}</p><p><b>解説：</b>${escapeHtml(current.explanation || "解説なし")}</p></div>` : ""}${resolved && item.originalQuestion && item.originalQuestion !== item.question ? `<p class="hint"><b>報告時の問題文：</b>${escapeHtml(item.originalQuestion)}</p>` : ""}${resolved && !current && Object.prototype.hasOwnProperty.call(item, "correctedAnswer") ? `<div class="report-correction-summary"><strong>保存した修正内容</strong><p><b>答え：</b>${escapeHtml(item.correctedAnswer || "")}</p><p><b>解説：</b>${escapeHtml(item.correctedExplanation || "解説なし")}</p></div>` : ""}${item.details ? `<div class="report-details"><b>修正内容</b><p>${escapeHtml(item.details)}</p></div>` : `<p class="hint">修正内容の入力はありません。</p>`}<p>${dateText(item.createdAt)} / ${escapeHtml(item.type)} ${Number(item.index) + 1}</p><small>${escapeHtml(item.reporterName || "学生")} ${item.reporterStudentNumber ? `（${escapeHtml(item.reporterStudentNumber)}）` : ""} / ${escapeHtml(item.subjectId || "")} / ${escapeHtml(item.unitId || "")}</small></div><div class="report-actions"><span class="chip ${resolved ? "" : "danger"}">${resolved ? "修正済み" : "未対応"}</span>${resolved ? "" : `<button class="secondary-button compact-button" data-report-edit="${escapeHtml(item.id)}" type="button">問題・答え・解説を修正</button>`}<button class="${resolved ? "secondary-button" : "primary-button"} compact-button" data-report-status="${escapeHtml(item.id)}" data-next-status="${resolved ? "open" : "resolved"}" type="button">${resolved ? "未対応へ戻す" : "修正せず対応済み"}</button></div></article>`; }).join("") : `<div class="empty">${resolved ? "修正済みの依頼はありません。" : "未対応の修正依頼はありません。"}</div>`;
       reportList.querySelectorAll("[data-report-edit]").forEach((button) => button.addEventListener("click", () => {
         const report = items.find((item) => item.id === button.dataset.reportEdit);
         if (report) openReportQuestionEditor(button, report, context, () => renderReports(root, context));
