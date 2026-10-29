@@ -91,7 +91,9 @@ async function renderUserManager(root, context) {
 async function renderAnalytics(root, context) {
   root.innerHTML = `<section class="panel"><div class="panel-header"><div><h2>学生全体の学習分析</h2><p>問題ごとの正答率、解答回数、苦手傾向を確認できます。</p></div><span class="chip">集計中</span></div><div class="empty">学習結果を読み込んでいます…</div></section>`;
   try {
-    const [subjects, progress] = await Promise.all([listSubjects(), listAllProgress()]);
+    const [subjects, allProgress, directory] = await Promise.all([listSubjects(), listAllProgress(), listUsersAndInvites()]);
+    const registeredUids = new Set(directory.users.map((item) => item.id));
+    const progress = allProgress.filter((item) => registeredUids.has(item.uid));
     const unitsBySubject = new Map();
     await Promise.all(subjects.map(async (subject) => {
       unitsBySubject.set(subject.id, await listUnits(subject.id));
