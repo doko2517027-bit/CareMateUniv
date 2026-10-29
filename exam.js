@@ -1,7 +1,48 @@
 import { auth } from "./firebase.js?v=7";
-import { getProgress, listCategories, listSubjects, listUnits, reportQuestion, saveProgress } from "./store.js?v=7";
+import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=9";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+
+
+let stopVisibleUnitWatch = null;
+export function stopStudyUnitWatch() {
+  if (stopVisibleUnitWatch) {
+    stopVisibleUnitWatch();
+    stopVisibleUnitWatch = null;
+  }
+}
+function unitContentSignature(unit) {
+  return JSON.stringify({
+    name: unit?.name, range: unit?.range, published: unit?.published,
+    quiz: unit?.quiz, fill_blank: unit?.fill_blank,
+    summary: unit?.summary, important_points: unit?.important_points,
+  });
+}
+function watchDisplayedUnit(root, context, subject, unit, onFresh) {
+  stopStudyUnitWatch();
+  const pageNode = root.firstElementChild;
+  let signature = unitContentSignature(unit);
+  const stop = watchUnit(subject.id, unit.id, (fresh) => {
+    if (!pageNode?.isConnected || root.firstElementChild !== pageNode) {
+      stopStudyUnitWatch();
+      return;
+    }
+    if (!fresh || fresh.published === false) {
+      stopStudyUnitWatch();
+      context.toast("この単元は現在利用できません。単元一覧に戻ります。", true);
+      renderSubject(root, context, subject);
+      return;
+    }
+    const next = unitContentSignature(fresh);
+    if (next === signature) return;
+    signature = next;
+    stopStudyUnitWatch();
+    onFresh(fresh);
+  }, (error) => {
+    context.toast(error?.message || "問題の更新を確認できませんでした。", true);
+  });
+  stopVisibleUnitWatch = stop;
+}
 
 function percent(progress = {}) {
   const answered = Math.max(Number(progress.answered || 0), Object.keys(progress.questionStats || {}).length);
@@ -30,6 +71,7 @@ async function loadSubjectOverview(subjects) {
 }
 
 export async function renderTestHome(root, context) {
+  stopStudyUnitWatch();
   root.innerHTML = `<section class="hero test-hero"><div><span class="chip">試験対策</span><h2>学習する区分を選択</h2><p>区分から科目、単元へ順番に進みます。</p></div><span class="hero-badge">${escapeHtml(context.profile.name)}</span></section><section class="panel"><div class="panel-header"><div><h2>年度・期間</h2><p>学習したい区分を選んでください。</p></div></div><div id="categoryGrid" class="catalog-navigation"><p class="empty">読み込み中…</p></div></section>`;
   const [categories, subjects] = await Promise.all([listCategories(), listSubjects({ publishedOnly: true })]);
   const grid = root.querySelector("#categoryGrid");
@@ -57,6 +99,7 @@ export async function renderTestHome(root, context) {
 }
 
 async function renderCategory(root, context, category, subjects, knownOverview = null) {
+  stopStudyUnitWatch();
   root.innerHTML = `<div class="study-header"><button class="back-button" type="button" aria-label="区分一覧へ戻る">‹</button><div><span class="brand-mini">CATEGORY</span><h2>${escapeHtml(category.name)}</h2><p>${subjects.length}科目</p></div></div><section class="panel"><div class="panel-header"><div><h2>科目一覧</h2><p>科目ごとの解答進捗を確認できます。</p></div></div><div id="subjectGrid" class="catalog-navigation"><p class="empty">進捗を読み込み中…</p></div></section>`;
   root.querySelector(".back-button").addEventListener("click", () => renderTestHome(root, context));
   const overview = knownOverview || await loadSubjectOverview(subjects);
@@ -73,6 +116,7 @@ async function renderCategory(root, context, category, subjects, knownOverview =
 }
 
 async function renderSubject(root, context, subject, parent = null) {
+  stopStudyUnitWatch();
   parent ||= subject._navigationParent || null;
   root.innerHTML = `<div class="study-header"><button class="back-button" type="button" aria-label="戻る">‹</button><div><span class="brand-mini">SUBJECT</span><h2>${escapeHtml(subject.name)}</h2></div></div><section class="panel"><div class="panel-header"><div><h2>単元</h2><p>学習内容を選択してください。</p></div></div><div id="unitGrid" class="grid"><p class="empty">読み込み中…</p></div></section>`;
   root.querySelector(".back-button").addEventListener("click", () => parent ? renderCategory(root, context, parent.category, parent.subjects) : renderTestHome(root, context));
@@ -86,13 +130,23 @@ async function renderSubject(root, context, subject, parent = null) {
     const answered = Math.min(total, Math.max(Number(progressItems[index]?.answered || 0), Object.keys(progressItems[index]?.questionStats || {}).length));
     return `<article class="card unit-card"><div class="unit-progress-heading"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div>${progressRing(value, unit.name)}</div><div class="progress-summary"><strong>解答進捗 ${value}%</strong><span>${answered} / ${total}問</span></div><div class="progress-track" aria-label="進捗 ${value}%"><span style="width:${value}%"></span></div><div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
   }).join("");
-  grid.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
+  grid.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", async () => {
+    if (button.disabled) return;
     const unit = units[Number(button.dataset.index)];
     const action = button.dataset.action;
-    if (action === "study") renderQuestions(root, context, subject, unit);
-    if (action === "list") renderQuestionList(root, context, subject, unit);
-    if (action === "summary") renderTextContent(root, context, subject, unit, "summary", "要約");
-    if (action === "points") renderTextContent(root, context, subject, unit, "important_points", "重要ポイント");
+    button.disabled = true;
+    try {
+      const latest = await getUnit(subject.id, unit.id);
+      if (!latest?.published) throw new Error("この単元は現在利用できません。");
+      if (action === "study") await renderQuestions(root, context, subject, latest);
+      if (action === "list") renderQuestionList(root, context, subject, latest);
+      if (action === "summary") renderTextContent(root, context, subject, latest, "summary", "要約");
+      if (action === "points") renderTextContent(root, context, subject, latest, "important_points", "重要ポイント");
+    } catch (error) {
+      context.toast(error?.message || "最新の問題を取得できませんでした。", true);
+    } finally {
+      button.disabled = false;
+    }
   }));
 }
 
@@ -110,9 +164,11 @@ function renderQuestionImage(item) {
 }
 
 function renderTextContent(root, context, subject, unit, field, label) {
+  stopStudyUnitWatch();
   const items = Array.isArray(unit[field]) ? unit[field] : [];
   root.innerHTML = `${pageHeader(subject, unit, label)}<section class="panel">${items.length ? `<ol class="content-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>` : `<div class="empty">${escapeHtml(label)}はまだ登録されていません。</div>`}</section>`;
   bindBack(root, context, subject);
+  watchDisplayedUnit(root, context, subject, unit, (fresh) => renderTextContent(root, context, subject, fresh, field, label));
 }
 
 function allQuestions(unit) {
@@ -138,15 +194,24 @@ async function showReport(context, subject, unit, item) {
   }
 }
 
-function renderQuestionList(root, context, subject, unit) {
+function renderQuestionList(root, context, subject, unit, expandedIndices = [0]) {
+  stopStudyUnitWatch();
   const items = allQuestions(unit);
-  root.innerHTML = `${pageHeader(subject, unit, "問題一覧")}<section class="panel"><div class="panel-header"><div><h2>登録されている問題</h2><p>問題・選択肢・答え・解説をまとめて確認できます。</p></div><span class="chip">${items.length}問</span></div><div class="question-catalog">${items.length ? items.map((item, index) => `<details class="question-detail" ${index === 0 ? "open" : ""}><summary><span>${index + 1}</span><strong>${escapeHtml(item.question)}</strong><small>${item.kind}</small></summary><div class="question-detail-body">${renderQuestionImage(item)}${item.choices ? `<ol class="choice-preview">${item.choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ol>` : ""}<div class="answer-panel"><strong>答え</strong><p>${escapeHtml(item.displayAnswer)}</p><strong>解説</strong><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><button class="secondary-button report-button" data-index="${index}" type="button">違います</button></div></details>`).join("") : `<div class="empty">問題はまだ登録されていません。</div>`}</div></section>`;
+  root.innerHTML = `${pageHeader(subject, unit, "問題一覧")}<section class="panel"><div class="panel-header"><div><h2>登録されている問題</h2><p>問題・選択肢・答え・解説をまとめて確認できます。</p></div><span class="chip">${items.length}問</span></div><div class="question-catalog">${items.length ? items.map((item, index) => `<details class="question-detail" ${expandedIndices.includes(index) ? "open" : ""}><summary><span>${index + 1}</span><strong>${escapeHtml(item.question)}</strong><small>${item.kind}</small></summary><div class="question-detail-body">${renderQuestionImage(item)}${item.choices ? `<ol class="choice-preview">${item.choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ol>` : ""}<div class="answer-panel"><strong>答え</strong><p>${escapeHtml(item.displayAnswer)}</p><strong>解説</strong><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><button class="secondary-button report-button" data-index="${index}" type="button">違います</button></div></details>`).join("") : `<div class="empty">問題はまだ登録されていません。</div>`}</div></section>`;
   bindBack(root, context, subject);
   root.querySelectorAll(".report-button").forEach((button) => button.addEventListener("click", () => showReport(context, subject, unit, items[Number(button.dataset.index)])));
+  watchDisplayedUnit(root, context, subject, unit, (fresh) => {
+    const expanded = [...root.querySelectorAll(".question-detail")].flatMap((element, index) => element.open ? [index] : []);
+    renderQuestionList(root, context, subject, fresh, expanded);
+  });
 }
 
 async function renderQuestions(root, context, subject, unit) {
-  const items = allQuestions(unit);
+  stopStudyUnitWatch();
+  const fresh = await getUnit(subject.id, unit.id);
+  if (!fresh?.published) throw new Error("この単元は現在利用できません。");
+  unit = fresh;
+  let items = allQuestions(unit);
   if (!items.length) { context.toast("解答できる問題がまだありません。"); return; }
   const oldProgress = await getProgress(auth.currentUser.uid, subject.id, unit.id);
   const questionStats = structuredClone(oldProgress.questionStats || {});
@@ -222,10 +287,21 @@ async function renderQuestions(root, context, subject, unit) {
     }
   };
   const renderResult = () => {
+    stopStudyUnitWatch();
     const correct = answers.filter(Boolean).length;
     root.innerHTML = `${pageHeader(subject, unit, "結果")}<section class="panel message-card"><span class="message-icon">✓</span><h2>${correct} / ${answers.length}問 正解</h2><p>今回の問題演習が完了しました。</p><button id="retryButton" class="primary-button" type="button">もう一度解く</button></section>`;
     bindBack(root, context, subject);
     root.querySelector("#retryButton").addEventListener("click", () => renderQuestions(root, context, subject, unit));
   };
   show();
+  watchDisplayedUnit(root, context, subject, unit, (latest) => {
+    const notice = document.createElement("section");
+    notice.className = "study-update-banner";
+    notice.setAttribute("role", "status");
+    notice.innerHTML = '<div><strong>問題が更新されました</strong><p>最新の問題・正解・解説で学習を続けるには、読み込み直してください。</p></div><button class="primary-button" type="button">最新の内容を表示</button>';
+    root.insertBefore(notice, root.firstElementChild);
+    notice.querySelector("button").addEventListener("click", () => {
+      renderQuestions(root, context, subject, latest).catch((error) => context.toast(error.message || "再読み込みできませんでした。", true));
+    });
+  });
 }

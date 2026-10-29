@@ -85,3 +85,12 @@ html.dark .panel,html.dark .card,html.dark .auth-card,html.dark .message-card,ht
 .report-choice-correct input{min-height:0!important;width:18px!important;height:18px!important;accent-color:var(--primary)}
 .report-choice-edit-row .secondary-button{min-height:42px;padding:8px 12px}
 @media(max-width:620px){.report-correction-panel{padding:13px!important}.report-choice-edit-row{grid-template-columns:auto minmax(0,1fr)}.report-choice-edit-row .secondary-button{grid-column:2;justify-self:end;min-height:32px}.report-actions{justify-items:stretch}.report-actions .chip{justify-self:end}}
+
+/* Updates to published problems while a student is studying */
+.study-update-banner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin:10px 0 16px;padding:15px 17px;border:1px solid var(--primary);border-radius:16px;background:var(--card);box-shadow:0 8px 24px #101a1d13}
+.study-update-banner strong{color:var(--primary)}
+.study-update-banner p{font-size:13px;color:var(--muted);margin:5px 0 0;line-height:1.6}
+.study-update-banner button{flex:none}
+.report-correction-summary{margin:8px 0;padding:11px 13px;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+.report-correction-summary p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}
+@media(max-width:620px){.study-update-banner button{width:100%}}

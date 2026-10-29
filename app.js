@@ -15,9 +15,9 @@ import {
   registerStudentAccount,
   resendVerification,
 } from "./auth.js?v=7";
-import { renderTestHome } from "./exam.js?v=7";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=8";
-import { watchOpenQuestionReports } from "./store.js?v=8";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=8";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=9";
+import { watchOpenQuestionReports } from "./store.js?v=9";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -327,6 +327,7 @@ async function renderSettings(root) {
 }
 
 async function navigate(page) {
+  stopStudyUnitWatch();
   if (page === "admin" && profile.role !== "admin") page = "test";
   currentPage = page;
   $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "settings" ? "設定" : "管理";

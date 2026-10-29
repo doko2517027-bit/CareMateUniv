@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   orderBy,
@@ -69,8 +70,14 @@ export async function listUnits(subjectId, { publishedOnly = false } = {}) {
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
 }
 export async function getUnit(subjectId, unitId) {
-  const snapshot = await getDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId));
+  const snapshot = await getDocFromServer(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId));
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+}
+export function watchUnit(subjectId, unitId, onChange, onError = () => {}) {
+  return onSnapshot(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId), (snapshot) => {
+    if (snapshot.metadata.fromCache) return;
+    onChange(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
+  }, onError);
 }
 export function normalizeUnitData(input = {}) {
   const imageFields = (item) => ({
@@ -192,6 +199,12 @@ export async function applyQuestionReportCorrection({ reportId, questionIndex, o
     next[questionIndex] = corrected;
     transaction.update(unitRef, { [type]: next, updatedAt: serverTimestamp() });
     transaction.update(reportRef, {
+      originalQuestion: report.originalQuestion || report.question,
+      question: corrected.question,
+      correctedAnswer: type === "quiz"
+        ? corrected.answers?.length ? corrected.answers.map((i) => corrected.choices[i]).join(" / ") : corrected.choices[corrected.answer] || ""
+        : corrected.answer,
+      correctedExplanation: corrected.explanation,
       status: "resolved",
       resolvedAt: serverTimestamp(),
       resolvedByUid: currentUser.uid,
