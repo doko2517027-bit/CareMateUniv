@@ -1,5 +1,5 @@
-const CACHE = "caremate-univ-v14";
-const ASSETS = ["./", "index.html", "styles.css?v=13", "intro.css?v=1", "intro.js?v=1", "app.js?v=14", "auth.js?v=8", "store.js?v=12", "exam.js?v=12", "admin.js?v=12", "notices.js?v=2", "firebase.js?v=8", "manifest.json", "assets/cmu-icon.png"];
+const CACHE = "caremate-univ-v15";
+const ASSETS = ["./", "index.html", "styles.css?v=14", "intro.css?v=1", "intro.js?v=1", "app.js?v=15", "auth.js?v=8", "store.js?v=12", "exam.js?v=13", "admin.js?v=13", "notices.js?v=2", "firebase.js?v=8", "manifest.json", "assets/cmu-icon.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", (event) => {

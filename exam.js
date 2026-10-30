@@ -50,9 +50,18 @@ function percent(progress = {}) {
   return total > 0 ? Math.min(100, Math.round((answered / total) * 100)) : 0;
 }
 
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
 function progressRing(value, label = "進捗") {
-  const safe = Math.max(0, Math.min(100, Number(value) || 0));
-  return `<span class="progress-ring" style="--progress:${safe}" role="img" aria-label="${escapeHtml(label)} ${safe}%"><span><b>${safe}</b><small>%</small></span></span>`;
+  const safe = clampPercent(value);
+  return `<span class="progress-ring" role="img" aria-label="${escapeHtml(label)} ${safe}%"><svg viewBox="0 0 42 42" aria-hidden="true"><circle class="progress-ring-track" cx="21" cy="21" r="17" pathLength="100"></circle><circle class="progress-ring-value" cx="21" cy="21" r="17" pathLength="100" stroke-dasharray="${safe} ${100 - safe}"></circle></svg><span><b>${safe}</b><small>%</small></span></span>`;
+}
+
+function progressBar(value, label = "進捗", className = "mini-progress") {
+  const safe = clampPercent(value);
+  return `<progress class="progress-meter ${className}" max="100" value="${safe}" aria-label="${escapeHtml(label)} ${safe}%">${safe}%</progress>`;
 }
 
 async function loadSubjectOverview(subjects) {
@@ -90,7 +99,7 @@ export async function renderTestHome(root, context) {
       }, { answered: 0, total: 0 });
       return { ...category, count: category.items.length, value: totals.total ? Math.round((totals.answered / totals.total) * 100) : 0 };
     });
-  grid.innerHTML = entries.map((category) => `<button class="catalog-navigation-card progress-navigation-card" data-category="${escapeHtml(category.id)}" type="button"><span class="catalog-icon">📚</span><span><strong>${escapeHtml(category.name)}</strong><small>${category.count}科目・学習進捗 ${category.value}%</small><span class="mini-progress"><i style="width:${category.value}%"></i></span></span>${progressRing(category.value, category.name)}<i>›</i></button>`).join("");
+  grid.innerHTML = entries.map((category) => `<button class="catalog-navigation-card progress-navigation-card" data-category="${escapeHtml(category.id)}" type="button"><span class="catalog-icon">📚</span><span><strong>${escapeHtml(category.name)}</strong><small>${category.count}科目・学習進捗 ${category.value}%</small>${progressBar(category.value, `${category.name} 学習進捗`)}</span>${progressRing(category.value, category.name)}<i>›</i></button>`).join("");
   grid.querySelectorAll("[data-category]").forEach((button) => button.addEventListener("click", () => {
     const selected = entries.find((item) => item.id === button.dataset.category);
     const filtered = selected.id === "__other__" ? unclassified : subjects.filter((subject) => subject.categoryId === selected.id);
@@ -106,7 +115,7 @@ async function renderCategory(root, context, category, subjects, knownOverview =
   const subjectGrid = root.querySelector("#subjectGrid");
   subjectGrid.innerHTML = subjects.map((subject) => {
     const item = overview.get(subject.id) || { value: 0, units: [] };
-    return `<button class="catalog-navigation-card progress-navigation-card" data-subject="${escapeHtml(subject.id)}" type="button"><span class="catalog-icon">📖</span><span><strong>${escapeHtml(subject.name)}</strong><small>${item.units.length}単元・解答進捗 ${item.value}%</small><span class="mini-progress"><i style="width:${item.value}%"></i></span></span>${progressRing(item.value, subject.name)}<i>›</i></button>`;
+    return `<button class="catalog-navigation-card progress-navigation-card" data-subject="${escapeHtml(subject.id)}" type="button"><span class="catalog-icon">📖</span><span><strong>${escapeHtml(subject.name)}</strong><small>${item.units.length}単元・解答進捗 ${item.value}%</small>${progressBar(item.value, `${subject.name} 解答進捗`)}</span>${progressRing(item.value, subject.name)}<i>›</i></button>`;
   }).join("");
   root.querySelectorAll("[data-subject]").forEach((button) => button.addEventListener("click", () => {
     const subject = subjects.find((item) => item.id === button.dataset.subject);
@@ -128,7 +137,7 @@ async function renderSubject(root, context, subject, parent = null) {
     const value = percent(progressItems[index]);
     const total = Number(progressItems[index]?.total || allQuestions(unit).length);
     const answered = Math.min(total, Math.max(Number(progressItems[index]?.answered || 0), Object.keys(progressItems[index]?.questionStats || {}).length));
-    return `<article class="card unit-card"><div class="unit-progress-heading"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div>${progressRing(value, unit.name)}</div><div class="progress-summary"><strong>解答進捗 ${value}%</strong><span>${answered} / ${total}問</span></div><div class="progress-track" aria-label="進捗 ${value}%"><span style="width:${value}%"></span></div><div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
+    return `<article class="card unit-card"><div class="unit-progress-heading"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div>${progressRing(value, unit.name)}</div><div class="progress-summary"><strong>解答進捗 ${value}%</strong><span>${answered} / ${total}問</span></div>${progressBar(value, `${unit.name} 解答進捗`, "progress-track")}<div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
   }).join("");
   grid.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", async () => {
     if (button.disabled) return;
@@ -231,7 +240,7 @@ async function renderQuestions(root, context, subject, unit) {
     const fillAnswers = !isQuiz && Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
     let locked = false;
     const progressValue = Math.round(((position + 1) / items.length) * 100);
-    root.innerHTML = `${pageHeader(subject, unit, "問題演習")}<div class="test-progress" aria-label="${position + 1}問目 / ${items.length}問"><span style="width:${progressValue}%"></span></div><section class="panel question-box test-focus-card"><div class="test-context-line"><b>${escapeHtml(subject.name)}</b><span>›</span><span>${escapeHtml(unit.name)}</span></div><div class="test-question-heading"><span class="test-content-label">問題</span><div class="test-question-number">${position + 1} / ${items.length}</div></div><h2 class="question-text test-question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">選択肢</span><small>${isMultiple ? "当てはまるものをすべて選択" : "1つ選択"}</small></div><div class="choice-list test-choice-list">${item.choices.map((choice, index) => `<button class="choice-button test-choice" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}</b><span>${escapeHtml(choice)}</span></button>`).join("")}</div></section>${isMultiple ? `<button id="answerButton" class="primary-button full-action" type="button" disabled>選択した答えを判定</button>` : ""}` : `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">解答</span><small>${fillAnswers.length > 1 ? `${fillAnswers.length}か所すべて入力` : "答えを入力"}</small></div><div class="fill-answer-list test-fill-inputs">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div></section><button id="answerButton" class="primary-button full-action" type="button">答え合わせ</button>`}<div id="resultArea"></div><button id="questionReportButton" class="test-report-link" type="button">違います</button></section>`;
+    root.innerHTML = `${pageHeader(subject, unit, "問題演習")}${progressBar(progressValue, `${position + 1}問目 / ${items.length}問`, "test-progress")}<section class="panel question-box test-focus-card"><div class="test-context-line"><b>${escapeHtml(subject.name)}</b><span>›</span><span>${escapeHtml(unit.name)}</span></div><div class="test-question-heading"><span class="test-content-label">問題</span><div class="test-question-number">${position + 1} / ${items.length}</div></div><h2 class="question-text test-question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">選択肢</span><small>${isMultiple ? "当てはまるものをすべて選択" : "1つ選択"}</small></div><div class="choice-list test-choice-list">${item.choices.map((choice, index) => `<button class="choice-button test-choice" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}</b><span>${escapeHtml(choice)}</span></button>`).join("")}</div></section>${isMultiple ? `<button id="answerButton" class="primary-button full-action" type="button" disabled>選択した答えを判定</button>` : ""}` : `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">解答</span><small>${fillAnswers.length > 1 ? `${fillAnswers.length}か所すべて入力` : "答えを入力"}</small></div><div class="fill-answer-list test-fill-inputs">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div></section><button id="answerButton" class="primary-button full-action" type="button">答え合わせ</button>`}<div id="resultArea"></div><button id="questionReportButton" class="test-report-link" type="button">違います</button></section>`;
     bindBack(root, context, subject);
     root.querySelector("#questionReportButton").addEventListener("click", () => showReport(context, subject, unit, item));
     const submit = async (given) => {
