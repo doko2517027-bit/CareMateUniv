@@ -52,3 +52,19 @@ test("旧学習を移行する非シャッフルセッションは登録順を�
   assert.deepEqual(session.order, questions.map(stableQuestionKey));
   assert.deepEqual(session.choiceOrders["quiz:id:quiz-a"], [0, 1, 2]);
 });
+
+test("IDのない旧問題も並べ替え後に同じ保存セッションへ復元できる", () => {
+  const legacy = [
+    { type: "fill_blank", sourceIndex: 0, question: "旧穴埋め", answer: "答え" },
+    { type: "quiz", sourceIndex: 0, question: "旧選択", choices: ["A", "B"], answers: [1] },
+  ];
+  const session = createStudySession(legacy, Math.random, { shuffled: false });
+  const reordered = [
+    { ...legacy[1], sourceIndex: 1 },
+    { ...legacy[0], sourceIndex: 1 },
+  ];
+  const restored = restoreStudySession(reordered, session);
+  assert.deepEqual(restored.session.order, session.order);
+  assert.equal(restored.items[0].question, "旧穴埋め");
+  assert.equal(restored.items[1].question, "旧選択");
+});

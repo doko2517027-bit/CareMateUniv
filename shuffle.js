@@ -10,7 +10,22 @@ function randomPermutation(length, random = Math.random) {
 export function stableQuestionKey(item) {
   const type = item?.type === "quiz" ? "quiz" : "fill_blank";
   const id = String(item?.id || "").trim();
-  return id ? `${type}:id:${id}` : `${type}:index:${Number(item?.sourceIndex) || 0}`;
+  if (id) return `${type}:id:${id}`;
+  // Older published units did not have IDs.  Use a deterministic content
+  // fingerprint instead of the array index so that a harmless reorder does
+  // not change an in-progress learner's saved session.  The next admin save
+  // permanently backfills generated IDs via store.js.
+  const legacySource = JSON.stringify({
+    question: String(item?.question || ""),
+    choices: Array.isArray(item?.choices) ? item.choices.map(String) : [],
+    answers: Array.isArray(item?.answers) ? item.answers.map(String) : [String(item?.answer ?? "")],
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < legacySource.length; index += 1) {
+    hash ^= legacySource.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${type}:legacy:${(hash >>> 0).toString(36)}`;
 }
 
 function validPermutation(value, length) {
