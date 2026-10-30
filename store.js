@@ -127,6 +127,82 @@ export async function saveUnit(subjectId, { id, name, range = "", published = fa
   }
   return (await addDoc(collection(db, COLLECTIONS.subjects, subjectId, "units"), { ...data, createdAt: serverTimestamp() })).id;
 }
+function editableUnitPayload({ name, range = "", order = 0, ...content }) {
+  return {
+    name: safeText(name, 100),
+    range: safeText(range, 300),
+    order: Number(order) || 0,
+    ...normalizeUnitData(content),
+  };
+}
+function questionIndexMap(before = [], after = []) {
+  const nextById = new Map(after.map((item, index) => [safeText(item?.id, 80), index]).filter(([id]) => id));
+  return before.map((item, oldIndex) => {
+    const id = safeText(item?.id, 80);
+    if (id && nextById.has(id)) return nextById.get(id);
+    const next = after.findIndex((candidate, index) => index === oldIndex && JSON.stringify(candidate) === JSON.stringify(item));
+    return next;
+  });
+}
+export function getEditableUnit(unit = {}) {
+  const draft = unit?.draft && typeof unit.draft === "object" ? unit.draft : null;
+  return draft ? { ...unit, ...draft, id: unit.id, published: unit.published === true } : unit;
+}
+export async function saveUnitDraft(subjectId, { id, _questionMaps: _unused, ...input }) {
+  if (!id) throw new Error("保存する単元が見つかりません。");
+  const draft = editableUnitPayload(input);
+  if (!draft.name) throw new Error("単元名を入力してください。");
+  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id), {
+    draft,
+    draftUpdatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  return id;
+}
+export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, ...input }) {
+  if (!id) throw new Error("公開する単元が見つかりません。");
+  const unitRef = doc(db, COLLECTIONS.subjects, subjectId, "units", id);
+  const currentSnapshot = await getDocFromServer(unitRef);
+  if (!currentSnapshot.exists()) throw new Error("公開する単元が見つかりません。");
+  const current = currentSnapshot.data();
+  const published = editableUnitPayload(input);
+  if (!published.name) throw new Error("単元名を入力してください。");
+  const maps = {
+    quiz: questionIndexMap(current.quiz || [], published.quiz || []),
+    fill_blank: questionIndexMap(current.fill_blank || [], published.fill_blank || []),
+  };
+  await setDoc(unitRef, {
+    ...published,
+    draft: published,
+    published: true,
+    publishedAt: serverTimestamp(),
+    publishedBy: auth.currentUser?.uid || "",
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  await setDoc(doc(db, COLLECTIONS.subjects, subjectId), { published: true, updatedAt: serverTimestamp() }, { merge: true });
+  const changed = ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
+  if (changed) {
+    await callProtectedApi("cleanupStudyAppQuestionDeletion", {
+      subjectId,
+      unitId: id,
+      maps,
+      total: published.quiz.length + published.fill_blank.length,
+    });
+  }
+  return id;
+}
+export async function setUnitPublication(subjectId, unitId, published) {
+  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId), {
+    published: published === true,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  if (published === true) {
+    await setDoc(doc(db, COLLECTIONS.subjects, subjectId), { published: true, updatedAt: serverTimestamp() }, { merge: true });
+    return;
+  }
+  const remaining = await getDocs(query(collection(db, COLLECTIONS.subjects, subjectId, "units"), where("published", "==", true)));
+  if (remaining.empty) await setDoc(doc(db, COLLECTIONS.subjects, subjectId), { published: false, updatedAt: serverTimestamp() }, { merge: true });
+}
 export async function removeUnit(subjectId, unitId) { await deleteDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId)); }
 
 export async function getProgress(uid, subjectId, unitId) {

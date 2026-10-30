@@ -16,9 +16,9 @@ import {
   resendVerification,
 } from "./auth.js?v=8";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=13";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=13";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=14";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=2";
-import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=12";
+import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=13";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -198,7 +198,7 @@ async function uploadQuestionImage(file, editor, context) {
 
 function unitEditor(unit = {}, context, target = null) {
   return new Promise((resolve) => {
-    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label><label class="checkbox-row"><input name="published" type="checkbox" ${unit.published ? "checked" : ""}>学生に公開する</label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz の既存形式を読み込めます。今日の一問は取り込みません。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><button class="primary-button" type="submit">問題を保存</button></div><p id="unitStatus" class="status"></p></form>`;
+    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>内容を編集して保存し、学生に見せるときに公開してください。</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="secondary-button" type="submit" data-submit-action="save">編集内容を保存</button><button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">学生に公開</button>${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz の既存形式を読み込めます。今日の一問は取り込みません。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><span>公開操作は画面上部の「保存・公開」から行います。</span></div><p id="unitStatus" class="status"></p></form>`;
     let dialog = null;
     const host = target || $("#dialogContent");
     if (target) host.innerHTML = editorHtml;
@@ -206,6 +206,7 @@ function unitEditor(unit = {}, context, target = null) {
     const form = $("#unitEditorForm", host);
     const fillList = $("#fillQuestionList");
     const quizList = $("#quizQuestionList");
+    let submitAction = "save";
     const originalCounts = {
       fill_blank: Array.isArray(unit.fill_blank) ? unit.fill_blank.length : 0,
       quiz: Array.isArray(unit.quiz) ? unit.quiz.length : 0,
@@ -224,6 +225,10 @@ function unitEditor(unit = {}, context, target = null) {
     const done = (value) => { if (dialog) { dialog.onclose = null; closeDialog(); } resolve(value); };
     renderQuestions(unit, true);
     $("#unitCancel").onclick = () => done(null);
+    form.querySelectorAll("[data-submit-action]").forEach((button) => button.addEventListener("click", () => { submitAction = button.dataset.submitAction; }));
+    $("#unpublishQuestions")?.addEventListener("click", async () => {
+      if (await context.confirm("この問題の学生への公開を停止しますか？")) done({ _action: "unpublish" });
+    });
     $("#addFillQuestion").onclick = () => { fillList.insertAdjacentHTML("beforeend", fillQuestionEditor({}, fillList.children.length)); updateLabels(); };
     $("#addQuizQuestion").onclick = () => { quizList.insertAdjacentHTML("beforeend", quizQuestionEditor({}, quizList.children.length)); updateLabels(); };
     form.addEventListener("click", (event) => {
@@ -300,7 +305,8 @@ function unitEditor(unit = {}, context, target = null) {
         });
         return map;
       };
-      done({ name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), published: form.elements.published.checked, summary: data.get("summary"), important_points: data.get("important_points"), fill_blank, quiz, _questionMaps: { fill_blank: buildMap(fillList, originalCounts.fill_blank), quiz: buildMap(quizList, originalCounts.quiz) } });
+      if (submitAction === "publish" && !window.confirm("この問題を学生へ公開しますか？")) { submitAction = "save"; return; }
+      done({ _action: submitAction, name: data.get("name"), order: Number(data.get("order")) || 0, range: data.get("range"), summary: data.get("summary"), important_points: data.get("important_points"), fill_blank, quiz, _questionMaps: { fill_blank: buildMap(fillList, originalCounts.fill_blank), quiz: buildMap(quizList, originalCounts.quiz) } });
     };
     if (dialog) dialog.onclose = () => resolve(null);
   });

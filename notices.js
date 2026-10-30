@@ -7,7 +7,7 @@ import {
   saveAnnouncement,
   watchAnnouncementReads,
   watchAnnouncements,
-} from "./store.js?v=12";
+} from "./store.js?v=13";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "U", "SPAN", "FONT", "H2", "H3", "UL", "OL", "LI"]);

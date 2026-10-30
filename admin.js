@@ -5,6 +5,7 @@ import {
   createAdminInvite,
   deleteStudyUser,
   getUnit,
+  getEditableUnit,
   listProgress,
   listCategories,
   listQuestionReports,
@@ -19,9 +20,12 @@ import {
   saveCategory,
   saveSubject,
   saveUnit,
+  saveUnitDraft,
+  publishUnitDraft,
+  setUnitPublication,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=12";
+} from "./store.js?v=13";
 import { renderAnnouncementManager } from "./notices.js?v=2";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -257,13 +261,13 @@ async function renderTestManager(root, context) {
 
 async function renderSubjectManager(root, context, category) {
   const subjects = (await listSubjects()).filter((item) => item.categoryId === category.id);
-  root.innerHTML = `${adminHeader(category.name, "科目の登録・公開設定", () => renderTestManager(root, context))}<section class="panel"><div class="panel-header"><div><h2>科目一覧</h2><p>科目を選ぶと単元の登録画面へ進みます。</p></div><span class="chip">${subjects.length}科目</span></div><form id="subjectCreateForm" class="inline-create-form"><input name="name" maxlength="100" placeholder="科目名" required><input name="order" type="number" value="0" aria-label="表示順"><label class="checkbox-row"><input name="published" type="checkbox">公開</label><button class="primary-button" type="submit">科目を追加</button></form><div id="subjectList" class="admin-list">${subjects.length ? subjects.map((subject) => `<article class="admin-row navigation-row"><button class="row-main-button" data-open-subject="${subject.id}" type="button"><span class="row-icon">📘</span><span><strong>${escapeHtml(subject.name)}</strong><small>${subject.published ? "公開中" : "非公開"}・単元一覧へ</small></span><i>›</i></button><div class="inline-actions"><button class="secondary-button compact-button" data-edit-subject="${subject.id}" type="button">設定</button><button class="danger-button compact-button" data-delete-subject="${subject.id}" type="button">削除</button></div></article>`).join("") : `<div class="empty">この区分に科目はありません。</div>`}</div></section>`;
+  root.innerHTML = `${adminHeader(category.name, "科目の登録", () => renderTestManager(root, context))}<section class="panel"><div class="panel-header"><div><h2>科目一覧</h2><p>科目を選ぶと単元の登録画面へ進みます。公開は問題編集画面で行います。</p></div><span class="chip">${subjects.length}科目</span></div><form id="subjectCreateForm" class="inline-create-form publication-unified-form"><input name="name" maxlength="100" placeholder="科目名" required><input name="order" type="number" value="0" aria-label="表示順"><button class="primary-button" type="submit">科目を追加</button></form><div id="subjectList" class="admin-list">${subjects.length ? subjects.map((subject) => `<article class="admin-row navigation-row"><button class="row-main-button" data-open-subject="${subject.id}" type="button"><span class="row-icon">📘</span><span><strong>${escapeHtml(subject.name)}</strong><small>${subject.published ? "公開中の単元あり" : "公開前"}・単元一覧へ</small></span><i>›</i></button><div class="inline-actions"><button class="secondary-button compact-button" data-edit-subject="${subject.id}" type="button">設定</button><button class="danger-button compact-button" data-delete-subject="${subject.id}" type="button">削除</button></div></article>`).join("") : `<div class="empty">この区分に科目はありません。</div>`}</div></section>`;
   bindAdminBack(root, () => renderTestManager(root, context));
   const subjectForm = async (subject = {}) => {
-    const result = await context.form("科目設定", [{ name: "name", label: "科目名", value: subject.name || "", required: true }, { name: "order", label: "表示順", type: "number", value: subject.order || 0 }, { name: "published", label: "学生に公開", type: "checkbox", value: subject.published === true }]);
-    if (!result) return; await saveSubject({ id: subject.id, categoryId: category.id, ...result }); renderSubjectManager(root, context, category);
+    const result = await context.form("科目設定", [{ name: "name", label: "科目名", value: subject.name || "", required: true }, { name: "order", label: "表示順", type: "number", value: subject.order || 0 }]);
+    if (!result) return; await saveSubject({ id: subject.id, categoryId: category.id, published: subject.published === true, ...result }); renderSubjectManager(root, context, category);
   };
-  root.querySelector("#subjectCreateForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); await saveSubject({ ...values, categoryId: category.id, published: form.elements.published.checked }); renderSubjectManager(root, context, category); });
+  root.querySelector("#subjectCreateForm").addEventListener("submit", async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); await saveSubject({ ...values, categoryId: category.id, published: false }); renderSubjectManager(root, context, category); });
   root.querySelectorAll("[data-edit-subject]").forEach((button) => button.addEventListener("click", () => subjectForm(subjects.find((item) => item.id === button.dataset.editSubject))));
   root.querySelectorAll("[data-delete-subject]").forEach((button) => button.addEventListener("click", async () => { if (await context.confirm("この科目を削除しますか？配下の単元も見えなくなります。")) { await removeSubject(button.dataset.deleteSubject); renderSubjectManager(root, context, category); } }));
   root.querySelectorAll("[data-open-subject]").forEach((button) => button.addEventListener("click", () => renderUnitManager(root, context, category, subjects.find((item) => item.id === button.dataset.openSubject))));
@@ -271,20 +275,36 @@ async function renderSubjectManager(root, context, category) {
 
 async function renderUnitManager(root, context, category, subject) {
   const units = await listUnits(subject.id);
-  root.innerHTML = `${adminHeader(subject.name, `${category.name} / 単元と問題`, () => renderSubjectManager(root, context, category))}<section class="panel"><div class="panel-header"><div><h2>単元一覧</h2><p>単元を登録した後、「問題を編集」から問題作成へ進みます。</p></div><span class="chip">${units.length}単元</span></div><form id="unitCreateForm" class="unit-create-form"><div class="split"><label>単元名<input name="name" required maxlength="100"></label><label>試験範囲<input name="range" maxlength="300"></label></div><div class="inline-create-form"><input name="order" type="number" value="0" aria-label="表示順"><label class="checkbox-row"><input name="published" type="checkbox">公開</label><button class="primary-button" type="submit">単元を追加</button></div></form><div id="unitList" class="admin-list">${units.length ? units.map((unit) => `<article class="admin-row unit-management-row"><div><strong>${escapeHtml(unit.name)}</strong><p>${unit.published ? "公開中" : "非公開"} / 穴埋め ${(unit.fill_blank || []).length}問 / 選択 ${(unit.quiz || []).length}問</p></div><div class="inline-actions"><button class="primary-button" data-edit-questions="${unit.id}" type="button">問題を編集</button><button class="secondary-button compact-button" data-edit-unit="${unit.id}" type="button">単元設定</button><button class="danger-button compact-button" data-delete-unit="${unit.id}" type="button">削除</button></div></article>`).join("") : `<div class="empty">単元はまだありません。</div>`}</div></section>`;
+  root.innerHTML = `${adminHeader(subject.name, `${category.name} / 単元と問題`, () => renderSubjectManager(root, context, category))}<section class="panel"><div class="panel-header"><div><h2>単元一覧</h2><p>単元を登録した後、「問題を編集」から保存・公開します。</p></div><span class="chip">${units.length}単元</span></div><form id="unitCreateForm" class="unit-create-form"><div class="split"><label>単元名<input name="name" required maxlength="100"></label><label>試験範囲<input name="range" maxlength="300"></label></div><div class="inline-create-form publication-unified-form"><input name="order" type="number" value="0" aria-label="表示順"><button class="primary-button" type="submit">単元を追加</button></div></form><div id="unitList" class="admin-list">${units.length ? units.map((unit) => { const editable = getEditableUnit(unit); return `<article class="admin-row unit-management-row"><div><strong>${escapeHtml(editable.name || unit.name)}</strong><p>${unit.published ? "公開中" : "非公開"} / 穴埋め ${(editable.fill_blank || []).length}問 / 選択 ${(editable.quiz || []).length}問</p></div><div class="inline-actions"><button class="primary-button" data-edit-questions="${unit.id}" type="button">問題を編集</button><button class="secondary-button compact-button" data-edit-unit="${unit.id}" type="button">単元設定</button><button class="danger-button compact-button" data-delete-unit="${unit.id}" type="button">削除</button></div></article>`; }).join("") : `<div class="empty">単元はまだありません。</div>`}</div></section>`;
   bindAdminBack(root, () => renderSubjectManager(root, context, category));
-  root.querySelector("#unitCreateForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const values = Object.fromEntries(new FormData(form)); await saveUnit(subject.id, { ...values, published: form.elements.published.checked, fill_blank: [], quiz: [] }); renderUnitManager(root, context, category, subject); });
+  root.querySelector("#unitCreateForm").addEventListener("submit", async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); await saveUnit(subject.id, { ...values, published: false, fill_blank: [], quiz: [] }); renderUnitManager(root, context, category, subject); });
   const editSettings = async (unit) => {
-    const result = await context.form("単元設定", [{ name: "name", label: "単元名", value: unit.name || "", required: true }, { name: "range", label: "試験範囲", value: unit.range || "" }, { name: "order", label: "表示順", type: "number", value: unit.order || 0 }, { name: "published", label: "学生に公開", type: "checkbox", value: unit.published === true }]);
+    const editable = getEditableUnit(unit);
+    const result = await context.form("単元設定", [{ name: "name", label: "単元名", value: editable.name || "", required: true }, { name: "range", label: "試験範囲", value: editable.range || "" }, { name: "order", label: "表示順", type: "number", value: editable.order || 0 }]);
     if (!result) return;
-    await saveUnit(subject.id, { ...unit, ...result });
+    await saveUnitDraft(subject.id, { ...editable, ...result });
     renderUnitManager(root, context, category, subject);
   };
   root.querySelectorAll("[data-edit-unit]").forEach((button) => button.addEventListener("click", () => editSettings(units.find((item) => item.id === button.dataset.editUnit))));
   root.querySelectorAll("[data-edit-questions]").forEach((button) => button.addEventListener("click", async () => {
-    const fresh = await getUnit(subject.id, button.dataset.editQuestions);
-    const result = await context.unitEditor(fresh, root);
-    if (result) { await saveUnit(subject.id, { id: fresh.id, ...result }); context.toast("問題を保存しました。"); }
+    let editing = true;
+    while (editing) {
+      const fresh = await getUnit(subject.id, button.dataset.editQuestions);
+      const result = await context.unitEditor(getEditableUnit(fresh), root);
+      if (!result) { editing = false; break; }
+      const action = result._action;
+      delete result._action;
+      if (action === "publish") {
+        await publishUnitDraft(subject.id, { id: fresh.id, ...result });
+        context.toast("公開しました。");
+      } else if (action === "unpublish") {
+        await setUnitPublication(subject.id, fresh.id, false);
+        context.toast("公開を停止しました。");
+      } else {
+        await saveUnitDraft(subject.id, { id: fresh.id, ...result });
+        context.toast("編集内容を保存しました。");
+      }
+    }
     await renderUnitManager(root, context, category, subject);
   }));
   root.querySelectorAll("[data-delete-unit]").forEach((button) => button.addEventListener("click", async () => { if (await context.confirm("この単元と問題を削除しますか？")) { await removeUnit(subject.id, button.dataset.deleteUnit); renderUnitManager(root, context, category, subject); } }));
