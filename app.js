@@ -17,7 +17,7 @@ import {
 } from "./auth.js?v=9";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=14";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=15";
-import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=3";
+import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=14";
 import { uploadStudyFile } from "./upload.js?v=1";
 
@@ -41,7 +41,9 @@ function loading(show, message = "読み込み中…") { $("#loadingMessage").te
 function status(element, message = "", error = false) { element.textContent = message; element.className = `status${message ? error ? " error" : " success" : ""}`; }
 function toast(message, error = false) {
   const element = $("#toast");
-  element.textContent = message; element.style.background = error ? "#a92638" : "#172033"; element.hidden = false;
+  element.textContent = message;
+  element.className = `toast${error ? " error" : ""}`;
+  element.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { element.hidden = true; }, 3400);
 }
 

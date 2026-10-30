@@ -13,6 +13,14 @@
 .intro-second{margin:.9em 0 0;font-size:clamp(1.02rem,2.55vw,2.65rem);font-weight:650;letter-spacing:.11em;line-height:1.7;opacity:0;transform:translateY(19px);animation:cmu-words-in .7s 1.79s cubic-bezier(.2,.9,.25,1) forwards}
 .intro-sequence{position:absolute;inset:0;z-index:2;pointer-events:none}
 .intro-fragment{position:absolute;inset:0;background:url("./assets/cmu-icon.png") center center/cover no-repeat;clip-path:inset(0 var(--cut-right) 0 var(--cut-left));opacity:0;transform:translate3d(var(--fly-x),var(--fly-y),0) rotate(var(--fly-rotate)) scale(1.12);filter:blur(16px) saturate(1.4);will-change:transform,opacity,filter;animation:cmu-piece-lock .9s var(--enter) cubic-bezier(.16,1,.3,1) forwards}
+.intro-fragment:nth-child(1){--cut-left:0%;--cut-right:87.5%;--fly-x:-34vw;--fly-y:-18vh;--fly-rotate:-13deg;--enter:2.55s}
+.intro-fragment:nth-child(2){--cut-left:12.5%;--cut-right:75%;--fly-x:28vw;--fly-y:-25vh;--fly-rotate:9deg;--enter:2.63s}
+.intro-fragment:nth-child(3){--cut-left:25%;--cut-right:62.5%;--fly-x:-32vw;--fly-y:27vh;--fly-rotate:-7deg;--enter:2.71s}
+.intro-fragment:nth-child(4){--cut-left:37.5%;--cut-right:50%;--fly-x:13vw;--fly-y:-42vh;--fly-rotate:8deg;--enter:2.79s}
+.intro-fragment:nth-child(5){--cut-left:50%;--cut-right:37.5%;--fly-x:-12vw;--fly-y:33vh;--fly-rotate:-9deg;--enter:2.87s}
+.intro-fragment:nth-child(6){--cut-left:62.5%;--cut-right:25%;--fly-x:35vw;--fly-y:-19vh;--fly-rotate:13deg;--enter:2.95s}
+.intro-fragment:nth-child(7){--cut-left:75%;--cut-right:12.5%;--fly-x:-24vw;--fly-y:30vh;--fly-rotate:-11deg;--enter:3.03s}
+.intro-fragment:nth-child(8){--cut-left:87.5%;--cut-right:0%;--fly-x:33vw;--fly-y:18vh;--fly-rotate:7deg;--enter:3.11s}
 .intro-mark{position:absolute;z-index:5;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:28px;text-align:center;pointer-events:none}
 .intro-rule{width:min(110px,25vw);height:3px;margin-bottom:27px;background:linear-gradient(90deg,#3fe1d7,#c0fcf2);border-radius:10px;transform:scaleX(0);animation:cmu-rule-in .5s 3.75s cubic-bezier(.16,1,.3,1) forwards}
 .intro-brand-name{display:block;max-width:100%;font-size:clamp(2.55rem,7.8vw,8.1rem);font-weight:870;letter-spacing:-.065em;line-height:1.15;color:#fff;opacity:0;transform:translateY(28px) scale(.96);text-shadow:0 8px 55px rgba(0,13,29,.7),0 2px 8px rgba(0,13,29,.48);animation:cmu-brand-in .75s 3.89s cubic-bezier(.2,.9,.25,1) forwards}

@@ -10,4 +10,6 @@ test("公開フロントには秘密鍵を置かず、別サイトのフレー�
   assert.match(security, /window\.top === window\.self/);
   assert.match(security, /replaceChildren/);
   assert.doesNotMatch(`${html}\n${security}\n${auth}`, /BEGIN PRIVATE KEY|CLOUDINARY_API_SECRET/);
+  assert.match(html, /Content-Security-Policy/);
+  assert.doesNotMatch(html, /style=/);
 });

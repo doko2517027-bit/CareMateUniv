@@ -26,7 +26,7 @@ import {
   updateUserAccess,
   updateQuestionReportStatus,
 } from "./store.js?v=14";
-import { renderAnnouncementManager } from "./notices.js?v=3";
+import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const dateText = (value) => value?.toDate ? value.toDate().toLocaleString("ja-JP") : "—";

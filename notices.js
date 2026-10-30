@@ -213,7 +213,7 @@ export async function renderAnnouncementManager(root, context, onBack) {
     paintAttachments();
     root.querySelector("#noticeFontSize").insertAdjacentHTML("beforebegin", `<select id="noticeFontFamily" aria-label="字体"><option value="sans-serif">ゴシック</option><option value="serif">明朝</option><option value="Arial Rounded MT Bold">丸ゴシック</option></select>`);
     root.querySelectorAll("[data-rich-command]").forEach((button) => button.addEventListener("mousedown", (event) => { event.preventDefault(); document.execCommand(button.dataset.richCommand); editor.focus(); }));
-    root.querySelector("#noticeFontSize").addEventListener("change", (event) => { document.execCommand("fontSize", false, "7"); editor.querySelectorAll('font[size="7"]').forEach((node) => { const span = document.createElement("span"); span.style.fontSize = `${event.target.value}px`; span.innerHTML = node.innerHTML; node.replaceWith(span); }); editor.focus(); });
+    root.querySelector("#noticeFontSize").addEventListener("change", (event) => { document.execCommand("fontSize", false, "7"); editor.querySelectorAll('font[size="7"]').forEach((node) => { const span = document.createElement("span"); span.className = `notice-size-${event.target.value}`; span.innerHTML = node.innerHTML; node.replaceWith(span); }); editor.focus(); });
     root.querySelector("#noticeFontFamily").addEventListener("change", (event) => { document.execCommand("fontName", false, event.target.value); editor.focus(); });
     root.querySelector("#noticeTextColor").addEventListener("input", (event) => { document.execCommand("foreColor", false, event.target.value); editor.focus(); });
     root.querySelector("#noticeAttachmentInput").addEventListener("change", async (event) => {
