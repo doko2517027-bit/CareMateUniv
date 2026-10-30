@@ -7,7 +7,7 @@ import {
   saveAnnouncement,
   watchAnnouncementReads,
   watchAnnouncements,
-} from "./store.js?v=14";
+} from "./store.js?v=15";
 import { uploadStudyFile } from "./upload.js?v=1";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

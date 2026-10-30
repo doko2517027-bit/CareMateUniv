@@ -4,10 +4,11 @@ import { readFile } from "node:fs/promises";
 
 const read = (name) => readFile(new URL(name, import.meta.url), "utf8");
 
-test("問題編集は旧CareMateと同じ保存・公開ボタンを使う", async () => {
+test("問題編集は公開状態に応じて保存・公開操作を分かりやすく切り替える", async () => {
   const app = await read("app.js");
-  assert.match(app, /id="saveEditedQuestions"[\s\S]*>編集内容を保存</);
-  assert.match(app, /id="publishQuestions"[\s\S]*>学生に公開</);
+  assert.match(app, /const saveLabel = unit\.published \? "変更を保存して反映" : "編集内容を保存"/);
+  assert.match(app, /const publishButton = unit\.published \? "" : `<button id="publishQuestions"/);
+  assert.match(app, /id="saveEditedQuestions"/);
   assert.doesNotMatch(app, /name="published" type="checkbox"/);
 });
 

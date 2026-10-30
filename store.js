@@ -9,6 +9,7 @@ import {
   getDoc,
   getDocFromServer,
   getDocs,
+  getDocsFromServer,
   increment,
   onSnapshot,
   orderBy,
@@ -39,8 +40,12 @@ export function newCode(length = 24) {
   return [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
 }
 
-export async function listCategories() {
-  const snapshots = await getDocs(query(collection(db, COLLECTIONS.categories), orderBy("order", "asc")));
+async function readDocs(reference, forceServer = false) {
+  return forceServer ? getDocsFromServer(reference) : getDocs(reference);
+}
+
+export async function listCategories({ forceServer = false } = {}) {
+  const snapshots = await readDocs(query(collection(db, COLLECTIONS.categories), orderBy("order", "asc")), forceServer);
   return snapshots.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 export async function saveCategory({ id, name, order = 0 }) {
@@ -51,9 +56,9 @@ export async function saveCategory({ id, name, order = 0 }) {
 }
 export async function removeCategory(id) { await deleteDoc(doc(db, COLLECTIONS.categories, id)); }
 
-export async function listSubjects({ publishedOnly = false } = {}) {
+export async function listSubjects({ publishedOnly = false, forceServer = false } = {}) {
   const constraints = publishedOnly ? [where("published", "==", true)] : [];
-  const snapshots = await getDocs(query(collection(db, COLLECTIONS.subjects), ...constraints));
+  const snapshots = await readDocs(query(collection(db, COLLECTIONS.subjects), ...constraints), forceServer);
   const items = snapshots.docs.map((item) => ({ id: item.id, ...item.data() }));
   return items.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
 }
@@ -65,9 +70,9 @@ export async function saveSubject({ id, name, categoryId, published = false, ord
 }
 export async function removeSubject(id) { await deleteDoc(doc(db, COLLECTIONS.subjects, id)); }
 
-export async function listUnits(subjectId, { publishedOnly = false } = {}) {
+export async function listUnits(subjectId, { publishedOnly = false, forceServer = false } = {}) {
   const unitsRef = collection(db, COLLECTIONS.subjects, subjectId, "units");
-  const snapshots = await getDocs(publishedOnly ? query(unitsRef, where("published", "==", true)) : unitsRef);
+  const snapshots = await readDocs(publishedOnly ? query(unitsRef, where("published", "==", true)) : unitsRef, forceServer);
   return snapshots.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((item) => !publishedOnly || item.published === true)
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
@@ -148,6 +153,32 @@ function questionIndexMap(before = [], after = []) {
 export async function getUnitDraft(subjectId, unitId) {
   const snapshot = await getDocFromServer(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId, "drafts", "edited"));
   return snapshot.exists() ? snapshot.data() : null;
+}
+function comparableUnit(input = {}) {
+  return JSON.stringify({
+    name: safeText(input.name, 100),
+    range: safeText(input.range, 300),
+    order: Number(input.order) || 0,
+    summary: input.summary || [],
+    important_points: input.important_points || [],
+    fill_blank: input.fill_blank || [],
+    quiz: input.quiz || [],
+  });
+}
+export async function listUnitsWithDrafts(subjectId) {
+  const units = await listUnits(subjectId, { forceServer: true });
+  const drafts = await Promise.all(units.map((unit) => getUnitDraft(subjectId, unit.id)));
+  return units.map((unit, index) => {
+    const draft = drafts[index];
+    if (!draft) return { ...unit, hasUnpublishedChanges: false };
+    return {
+      ...unit,
+      ...draft,
+      id: unit.id,
+      published: unit.published === true,
+      hasUnpublishedChanges: comparableUnit(unit) !== comparableUnit(draft),
+    };
+  });
 }
 export async function saveUnitDraft(subjectId, { id, _questionMaps: _unused, ...input }) {
   if (!id) throw new Error("保存する単元が見つかりません。");
