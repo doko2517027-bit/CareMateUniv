@@ -1,5 +1,6 @@
 import { auth } from "./firebase.js?v=8";
-import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=13";
+import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=14";
+import { createStudySession, restoreStudySession, stableQuestionKey } from "./shuffle.js?v=1";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
@@ -215,23 +216,45 @@ function renderQuestionList(root, context, subject, unit, expandedIndices = [0])
   });
 }
 
-async function renderQuestions(root, context, subject, unit) {
+async function renderQuestions(root, context, subject, unit, { forceNew = false } = {}) {
   stopStudyUnitWatch();
   const fresh = await getUnit(subject.id, unit.id);
   if (!fresh?.published) throw new Error("この単元は現在利用できません。");
   unit = fresh;
-  let items = allQuestions(unit);
-  if (!items.length) { context.toast("解答できる問題がまだありません。"); return; }
+  const publishedItems = allQuestions(unit);
+  if (!publishedItems.length) { context.toast("解答できる問題がまだありません。"); return; }
   const oldProgress = await getProgress(auth.currentUser.uid, subject.id, unit.id);
   const questionStats = structuredClone(oldProgress.questionStats || {});
   let attemptCount = Number(oldProgress.attemptCount || 0);
   let correctCount = Number(oldProgress.correctCount || 0);
-  let position = 0;
-  if (Number(oldProgress.position) > 0 && Number(oldProgress.position) < items.length) {
-    const resume = await context.confirm(`${Number(oldProgress.position) + 1}問目から続けますか？`);
-    position = resume ? Number(oldProgress.position) : 0;
+  let studySession = null;
+  let items = [];
+  const savedSession = oldProgress.studySession && typeof oldProgress.studySession === "object"
+    ? oldProgress.studySession : null;
+  if (!forceNew && savedSession?.active === true && Array.isArray(savedSession.order)) {
+    const restored = restoreStudySession(publishedItems, savedSession);
+    if (restored.items.length) {
+      const resume = await context.confirm(`${restored.session.position + 1}問目から続けますか？`);
+      if (resume) ({ items, session: studySession } = restored);
+    }
+  } else if (!forceNew && Number(oldProgress.position) > 0 && Number(oldProgress.position) < publishedItems.length) {
+    // Existing learners created before session persistence keep their original
+    // order for the current attempt. Only a new attempt is shuffled.
+    const legacy = createStudySession(publishedItems, Math.random, { shuffled: false });
+    legacy.position = Number(oldProgress.position);
+    const resume = await context.confirm(`${legacy.position + 1}問目から続けますか？`);
+    if (resume) ({ items, session: studySession } = restoreStudySession(publishedItems, legacy));
   }
-  const answers = [];
+  if (!studySession) {
+    ({ items, session: studySession } = restoreStudySession(publishedItems, createStudySession(publishedItems)));
+  }
+  let position = studySession.position;
+  const attemptResults = { ...studySession.results };
+  await saveProgress(auth.currentUser.uid, subject.id, unit.id, {
+    position,
+    total: items.length,
+    studySession,
+  });
   const show = () => {
     const item = items[position];
     const isQuiz = item.type === "quiz";
@@ -252,32 +275,50 @@ async function renderQuestions(root, context, subject, unit) {
       const accepted = isQuiz
         ? selected.length === correctAnswers.length && correctAnswers.every((value) => selected.includes(value))
         : normalizedGiven.length === normalizedCorrect.length && normalizedCorrect.every((value) => normalizedGiven.includes(value));
-      answers.push(accepted);
+      const sessionKey = item.sessionKey || stableQuestionKey(item);
       const questionKey = `${item.type}:${item.sourceIndex}`;
       const previous = questionStats[questionKey] || {};
-      questionStats[questionKey] = {
+      const nextQuestionStats = structuredClone(questionStats);
+      nextQuestionStats[questionKey] = {
         attempts: Number(previous.attempts || 0) + 1,
         correct: Number(previous.correct || 0) + (accepted ? 1 : 0),
       };
-      attemptCount += 1;
-      correctCount += accepted ? 1 : 0;
+      const nextAttemptCount = attemptCount + 1;
+      const nextCorrectCount = correctCount + (accepted ? 1 : 0);
+      const nextResults = { ...attemptResults, [sessionKey]: accepted };
+      const nextPosition = position + 1 < items.length ? position + 1 : 0;
+      const nextSession = {
+        ...studySession,
+        active: position + 1 < items.length,
+        position: nextPosition,
+        results: nextResults,
+      };
       try {
         await saveProgress(auth.currentUser.uid, subject.id, unit.id, {
-          questionStats,
-          attemptCount,
-          correctCount,
+          questionStats: nextQuestionStats,
+          attemptCount: nextAttemptCount,
+          correctCount: nextCorrectCount,
+          position: nextPosition,
+          answered: Math.min(items.length, Object.keys(nextQuestionStats).length),
           total: items.length,
+          lastScore: Object.values(nextResults).filter(Boolean).length,
+          studySession: nextSession,
         });
       } catch (error) {
         locked = false;
         context.toast(error.message || "学習結果を保存できませんでした。", true);
         return;
       }
+      Object.keys(questionStats).forEach((key) => delete questionStats[key]);
+      Object.assign(questionStats, nextQuestionStats);
+      attemptCount = nextAttemptCount;
+      correctCount = nextCorrectCount;
+      Object.assign(attemptResults, nextResults);
+      studySession = nextSession;
       if (isQuiz) root.querySelectorAll(".choice-button").forEach((button) => { button.disabled = true; const value = Number(button.dataset.choice); if (correctAnswers.includes(value)) button.classList.add("correct"); else if (selected.includes(value)) button.classList.add("wrong"); });
       const result = root.querySelector("#resultArea");
       result.innerHTML = `<section class="test-result-panel ${accepted ? "is-correct" : "is-wrong"}"><div class="test-result-summary"><div class="test-mark" aria-hidden="true">${accepted ? "○" : "×"}</div><div><strong>${accepted ? "正解" : "不正解"}</strong><small>${accepted ? "その調子です" : "答えと解説を確認しましょう"}</small></div></div><div class="answer-panel test-answer-explanation"><span class="test-content-label">答え</span><p>${escapeHtml(item.displayAnswer)}</p><span class="test-content-label">解説</span><p>${escapeHtml(item.explanation || "解説は登録されていません。")}</p></div><button id="nextButton" class="primary-button full-action" type="button">${position + 1 < items.length ? "次の問題" : "結果を見る"}</button></section>`;
-      result.querySelector("#nextButton").addEventListener("click", async () => {
-        await saveProgress(auth.currentUser.uid, subject.id, unit.id, { position: position + 1 < items.length ? position + 1 : 0, answered: Math.min(items.length, Number(oldProgress.answered || 0) + answers.length), total: items.length, lastScore: answers.filter(Boolean).length });
+      result.querySelector("#nextButton").addEventListener("click", () => {
         if (++position < items.length) show(); else renderResult();
       });
     };
@@ -297,16 +338,15 @@ async function renderQuestions(root, context, subject, unit) {
   };
   const renderResult = () => {
     stopStudyUnitWatch();
-    const correct = answers.filter(Boolean).length;
-    root.innerHTML = `${pageHeader(subject, unit, "結果")}<section class="panel message-card"><span class="message-icon">✓</span><h2>${correct} / ${answers.length}問 正解</h2><p>今回の問題演習が完了しました。</p><button id="retryButton" class="primary-button" type="button">もう一度解く</button></section>`;
+    const correct = Object.values(attemptResults).filter(Boolean).length;
+    root.innerHTML = `${pageHeader(subject, unit, "結果")}<section class="panel message-card"><span class="message-icon">✓</span><h2>${correct} / ${items.length}問 正解</h2><p>今回の問題演習が完了しました。</p><button id="retryButton" class="primary-button" type="button">もう一度解く</button></section>`;
     bindBack(root, context, subject);
-    root.querySelector("#retryButton").addEventListener("click", () => renderQuestions(root, context, subject, unit));
+    root.querySelector("#retryButton").addEventListener("click", () => renderQuestions(root, context, subject, unit, { forceNew: true }));
   };
   show();
   watchDisplayedUnit(root, context, subject, unit, (latest) => {
     // All following questions use the fresh published source. The already
     // displayed question is left untouched until the student opts to reload.
-    items = allQuestions(latest);
     unit = latest;
     const notice = document.createElement("section");
     notice.className = "study-update-banner";

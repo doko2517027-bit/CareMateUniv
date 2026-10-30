@@ -3,6 +3,7 @@ import {
   addDoc,
   collection,
   collectionGroup,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -144,19 +145,19 @@ function questionIndexMap(before = [], after = []) {
     return next;
   });
 }
-export function getEditableUnit(unit = {}) {
-  const draft = unit?.draft && typeof unit.draft === "object" ? unit.draft : null;
-  return draft ? { ...unit, ...draft, id: unit.id, published: unit.published === true } : unit;
+export async function getUnitDraft(subjectId, unitId) {
+  const snapshot = await getDocFromServer(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId, "drafts", "edited"));
+  return snapshot.exists() ? snapshot.data() : null;
 }
 export async function saveUnitDraft(subjectId, { id, _questionMaps: _unused, ...input }) {
   if (!id) throw new Error("保存する単元が見つかりません。");
   const draft = editableUnitPayload(input);
   if (!draft.name) throw new Error("単元名を入力してください。");
-  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id), {
-    draft,
-    draftUpdatedAt: serverTimestamp(),
+  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id, "drafts", "edited"), {
+    ...draft,
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+    updatedBy: auth.currentUser?.uid || "",
+  });
   return id;
 }
 export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, ...input }) {
@@ -173,12 +174,17 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
   };
   await setDoc(unitRef, {
     ...published,
-    draft: published,
+    draft: deleteField(),
     published: true,
     publishedAt: serverTimestamp(),
     publishedBy: auth.currentUser?.uid || "",
     updatedAt: serverTimestamp(),
   }, { merge: true });
+  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id, "drafts", "edited"), {
+    ...published,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || "",
+  });
   await setDoc(doc(db, COLLECTIONS.subjects, subjectId), { published: true, updatedAt: serverTimestamp() }, { merge: true });
   const changed = ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
   if (changed) {
@@ -394,7 +400,7 @@ export async function markAllAnnouncementsRead(uid, announcements) {
   await Promise.all(announcements.slice(0, 500).map((item) => markAnnouncementRead(uid, item.id, item.notificationRevision)));
 }
 
-async function callProtectedApi(method, data) {
+export async function callProtectedApi(method, data) {
   const current = auth.currentUser;
   if (!current) throw new Error("ログインしてください。");
   const controller = new AbortController();

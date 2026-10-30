@@ -7,7 +7,8 @@ import {
   saveAnnouncement,
   watchAnnouncementReads,
   watchAnnouncements,
-} from "./store.js?v=13";
+} from "./store.js?v=14";
+import { uploadStudyFile } from "./upload.js?v=1";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const allowedTags = new Set(["P", "DIV", "BR", "STRONG", "B", "U", "SPAN", "FONT", "H2", "H3", "UL", "OL", "LI"]);
@@ -169,21 +170,9 @@ export function renderStudentNotices(root, context, { focusId = "" } = {}) {
 }
 
 async function uploadNoticeFile(file) {
-  const image = file.type.startsWith("image/");
-  const pdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-  if (!image && !pdf) throw new Error("画像またはPDFを選択してください。");
-  if (file.size > (image ? 10 : 20) * 1024 * 1024) throw new Error(image ? "画像は10MB以下にしてください。" : "PDFは20MB以下にしてください。");
-  const form = new FormData();
-  form.append("file", file);
-  form.append("upload_preset", "caremate_upload");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45_000);
-  try {
-    const response = await fetch("https://api.cloudinary.com/v1_1/vpctonjf/auto/upload", { method: "POST", body: form, signal: controller.signal });
-    const data = await response.json();
-    if (!response.ok || !safeCloudinaryUrl(data.secure_url)) throw new Error("ファイルをアップロードできませんでした。");
-    return { type: pdf ? "pdf" : "image", url: data.secure_url, publicId: data.public_id || "", name: file.name };
-  } finally { clearTimeout(timer); }
+  const pdf = file.type === "application/pdf";
+  const result = await uploadStudyFile(file, "notice");
+  return { type: pdf ? "pdf" : "image", url: result.secureUrl, publicId: result.publicId, name: file.name };
 }
 
 function adminHeader(onBack) {

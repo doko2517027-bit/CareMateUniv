@@ -16,6 +16,8 @@ test("編集保存と学生公開は別処理で管理する", async () => {
   const admin = await read("admin.js");
   assert.match(store, /export async function saveUnitDraft/);
   assert.match(store, /export async function publishUnitDraft/);
+  assert.match(store, /"drafts", "edited"/);
+  assert.doesNotMatch(store, /draft:\s*published/);
   assert.match(admin, /action === "publish"/);
   assert.match(admin, /await saveUnitDraft/);
   assert.match(admin, /await publishUnitDraft/);

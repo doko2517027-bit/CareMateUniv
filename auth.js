@@ -11,6 +11,7 @@ import {
   onAuthStateChanged,
   reload,
   sendEmailVerification,
+  signInWithEmailAndPassword,
   signInWithCustomToken,
   signOut,
   updatePassword,
@@ -26,6 +27,17 @@ const PROFILE_COLLECTION = "studyAppUsers";
 const INVITE_COLLECTION = "studyAppInvites";
 const STUDENT_NUMBER_COLLECTION = "studyAppStudentNumbers";
 const API_BASE = "https://caremate-auth.onrender.com/api";
+const EMAIL_ACTION_SETTINGS = { url: "https://doko2517027-bit.github.io/CareMateUniv/" };
+const VERIFICATION_COOLDOWN_MS = 60_000;
+
+function verificationCooldownKey(uid) { return `cmuVerificationSentAt:${uid}`; }
+function markVerificationSent(uid) { sessionStorage.setItem(verificationCooldownKey(uid), String(Date.now())); }
+function ensureVerificationCooldown(uid) {
+  const elapsed = Date.now() - Number(sessionStorage.getItem(verificationCooldownKey(uid)) || 0);
+  if (elapsed < VERIFICATION_COOLDOWN_MS) {
+    throw new Error(`確認メールの再送は${Math.ceil((VERIFICATION_COOLDOWN_MS - elapsed) / 1000)}秒後に行えます。`);
+  }
+}
 
 async function callApi(method, data, { authenticated = false, timeout = 20_000 } = {}) {
   const controller = new AbortController();
@@ -75,10 +87,35 @@ export function authReady() {
   });
 }
 
-export async function registerStudentAccount({ emailLocal, password }) {
-  const result = await createUserWithEmailAndPassword(auth, sumsEmail(emailLocal), password);
+export async function registerStudentAccount({ studentNumber, password }) {
+  const number = cleanStudentNumber(studentNumber);
+  const email = sumsEmail(number);
+  let result;
+  try {
+    result = await createUserWithEmailAndPassword(auth, email, password);
+  } catch (error) {
+    if (error?.code !== "auth/email-already-in-use") throw error;
+    // A prior attempt may have stopped after creating Firebase Auth but before
+    // email verification/profile creation. The same owner can safely resume.
+    try { result = await signInWithEmailAndPassword(auth, email, password); }
+    catch {
+      const conflict = new Error("この学籍番号は登録済みです。ログインするか、パスワード再設定を行ってください。");
+      conflict.code = "auth/email-already-in-use";
+      throw conflict;
+    }
+    const existing = await getCurrentProfile();
+    if (existing) {
+      const conflict = new Error("この学籍番号は登録済みです。ログインしてください。");
+      conflict.code = "auth/email-already-in-use";
+      throw conflict;
+    }
+  }
   auth.languageCode = "ja";
-  await sendEmailVerification(result.user);
+  if (!result.user.emailVerified) {
+    ensureVerificationCooldown(result.user.uid);
+    await sendEmailVerification(result.user, EMAIL_ACTION_SETTINGS);
+    markVerificationSent(result.user.uid);
+  }
   return result.user;
 }
 
@@ -121,8 +158,10 @@ export async function requestPasswordReset(studentNumber) {
 
 export async function resendVerification() {
   if (!auth.currentUser || isAdminAuthEmail(auth.currentUser.email)) throw new Error("このアカウントではメール確認を使用しません。");
+  ensureVerificationCooldown(auth.currentUser.uid);
   auth.languageCode = "ja";
-  await sendEmailVerification(auth.currentUser);
+  await sendEmailVerification(auth.currentUser, EMAIL_ACTION_SETTINGS);
+  markVerificationSent(auth.currentUser.uid);
 }
 
 export async function refreshVerification() {
@@ -184,10 +223,16 @@ async function createProfile({ studentNumber, inviteCode = "", role }) {
 
 export async function completeStudentRegistration(studentNumber) {
   const user = auth.currentUser;
-  if (!user?.email?.endsWith("@sums.ac.jp") || !user.emailVerified) {
+  const number = cleanStudentNumber(studentNumber);
+  if (!user?.email?.endsWith("@sums.ac.jp") || !user.emailVerified
+    || user.email.toLowerCase() !== `${number}@sums.ac.jp`) {
     throw new Error("Active!Mailの確認を完了してください。");
   }
-  return createProfile({ studentNumber, role: "student" });
+  // Refresh the token after the verification link was opened so the backend
+  // receives the current email_verified claim immediately.
+  await user.getIdToken(true);
+  await callApi("completeStudyAppRegistration", { studentNumber: number }, { authenticated: true });
+  return getCurrentProfile();
 }
 
 export async function finishAdminRegistration({ studentNumber, registrationCode, nextPassword }) {

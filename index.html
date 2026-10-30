@@ -12,7 +12,8 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="assets/cmu-icon.png">
   <link rel="apple-touch-icon" href="assets/cmu-icon.png">
-  <link rel="stylesheet" href="styles.css?v=15">
+  <script src="security.js?v=1"></script>
+  <link rel="stylesheet" href="styles.css?v=16">
   <link rel="stylesheet" href="intro.css?v=1">
 </head>
 <body>
@@ -73,14 +74,12 @@
 
       <form id="registerForm" class="form-stack" hidden>
         <h2>新規登録</h2>
-        <p class="hint">学生はActive!Mailアドレスを入力してください。管理者として登録する場合、メールアドレスは空欄のままで進めます。</p>
+        <p id="registerHint" class="hint">大学メールへ本人確認メールを送信します。メールアドレスは学籍番号から自動設定されます。</p>
         <label>学籍番号<input id="registerStudentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label>
-        <label>Active!Mailアドレス（学生のみ）
-          <span class="email-field"><input id="registerEmailLocal" autocomplete="email" maxlength="80"><b>@sums.ac.jp</b></span>
-        </label>
-        <label>パスワード<input id="registerPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+        <label><span id="registerPasswordLabel">パスワード</span><input id="registerPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
         <label>パスワード再入力<input id="registerPasswordConfirm" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
-        <button class="primary-button" type="submit">登録を続ける</button>
+        <button id="registerSubmit" class="primary-button" type="submit">確認メールを送信</button>
+        <button id="toggleAdminRegistration" class="text-button" type="button">管理者として登録する</button>
       </form>
       <p id="authStatus" class="status" role="status"></p>
     </section>
@@ -90,7 +89,8 @@
     <section class="message-card">
       <span class="message-icon">✉</span>
       <h1>メールを確認してください</h1>
-      <p><strong id="verifyEmail"></strong> へ確認メールを送信しました。メール内のリンクを開いた後、この画面へ戻ってください。</p>
+      <p>認証メールを送信しました。大学メールをご確認ください。</p>
+      <p class="hint"><strong id="verifyEmail"></strong> 宛てのメール内のリンクを開いた後、この画面へ戻ってください。</p>
       <button id="checkVerification" class="primary-button" type="button">確認済みか再確認</button>
       <button id="resendVerification" class="secondary-button" type="button">確認メールを再送</button>
       <button id="verifyLogout" class="text-button" type="button">別のアカウントでログイン</button>
@@ -141,6 +141,6 @@
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <script defer src="intro.js?v=1"></script>
-  <script type="module" src="app.js?v=16"></script>
+  <script type="module" src="app.js?v=17"></script>
 </body>
 </html>

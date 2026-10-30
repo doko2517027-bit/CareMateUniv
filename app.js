@@ -14,11 +14,12 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=8";
-import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=13";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=14";
-import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=2";
-import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=13";
+} from "./auth.js?v=9";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=14";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=15";
+import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=3";
+import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=14";
+import { uploadStudyFile } from "./upload.js?v=1";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -33,6 +34,7 @@ let stopNoticeReadWatch = null;
 let knownAnnouncementRevisions = new Map();
 let latestAnnouncements = [];
 let latestAnnouncementReads = new Map();
+let registrationMode = "student";
 
 function showOnly(selector) { screens.forEach((item) => { $(item).hidden = item !== selector; }); }
 function loading(show, message = "読み込み中…") { $("#loadingMessage").textContent = message; $("#loadingOverlay").hidden = !show; }
@@ -179,20 +181,13 @@ function readQuestionImage(card) {
 }
 
 async function uploadQuestionImage(file, editor, context) {
-  if (!String(file?.type || "").startsWith("image/")) throw new Error("画像ファイルを選択してください。");
-  if (file.size > 10 * 1024 * 1024) throw new Error("画像は10MB以下にしてください。");
   const preview = editor.querySelector('[data-role="image-preview"]');
   preview.innerHTML = `<small>画像をアップロードしています…</small>`;
-  const body = new FormData();
-  body.append("file", file);
-  body.append("upload_preset", "caremate_upload");
-  const response = await fetch("https://api.cloudinary.com/v1_1/vpctonjf/image/upload", { method: "POST", body });
-  const result = await response.json();
-  if (!response.ok || !result.secure_url) throw new Error(result.error?.message || "画像をアップロードできませんでした。");
-  editor.querySelector('[data-role="image-url"]').value = result.secure_url;
-  editor.querySelector('[data-role="image-public-id"]').value = result.public_id || "";
+  const result = await uploadStudyFile(file, "question");
+  editor.querySelector('[data-role="image-url"]').value = result.secureUrl;
+  editor.querySelector('[data-role="image-public-id"]').value = result.publicId;
   const description = editor.querySelector('[data-role="image-description"]').value.trim();
-  preview.innerHTML = `<img src="${escapeHtml(result.secure_url)}" alt="${escapeHtml(description || "問題画像")}"><button class="danger-button" data-action="remove-image" type="button">画像を削除</button>`;
+  preview.innerHTML = `<img src="${escapeHtml(result.secureUrl)}" alt="${escapeHtml(description || "問題画像")}"><button class="danger-button" data-action="remove-image" type="button">画像を削除</button>`;
   context.toast("画像を追加しました。");
 }
 
@@ -468,13 +463,25 @@ async function routeAuthenticatedUser(user) {
   if (!user.emailVerified) {
     $("#verifyEmail").textContent = user.email || ""; showOnly("#verifyScreen"); return;
   }
-  $("#activationStudentNumber").value = pending.studentNumber || "";
-  showOnly("#activationScreen");
+  const studentNumber = pending.studentNumber || String(user.email || "").split("@")[0];
+  const completed = await completeStudentRegistration(studentNumber);
+  sessionStorage.removeItem("caremateTestPending");
+  await enterApp(completed);
+  promptRegistrationNotificationPermission();
 }
 
 function bindEvents() {
   $("#showLogin").onclick = () => { $("#loginForm").hidden = false; $("#registerForm").hidden = true; $("#showLogin").classList.add("active"); $("#showRegister").classList.remove("active"); status($("#authStatus")); };
   $("#showRegister").onclick = () => { $("#loginForm").hidden = true; $("#registerForm").hidden = false; $("#showLogin").classList.remove("active"); $("#showRegister").classList.add("active"); status($("#authStatus")); };
+  $("#toggleAdminRegistration").onclick = () => {
+    registrationMode = registrationMode === "student" ? "admin" : "student";
+    const admin = registrationMode === "admin";
+    $("#registerHint").textContent = admin ? "管理者から発行された登録コードで登録します。" : "大学メールへ本人確認メールを送信します。メールアドレスは学籍番号から自動設定されます。";
+    $("#registerPasswordLabel").textContent = admin ? "管理者登録コード" : "パスワード";
+    $("#registerSubmit").textContent = admin ? "管理者登録を続ける" : "確認メールを送信";
+    $("#toggleAdminRegistration").textContent = admin ? "学生として登録する" : "管理者として登録する";
+    $("#registerForm").reset();
+  };
   $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#forgotPassword").onclick = async () => {
     const result = await formDialog("パスワードを忘れた方", [{ name: "studentNumber", label: "学籍番号", value: "", required: true }], "送信");
@@ -488,14 +495,13 @@ function bindEvents() {
   $("#registerForm").onsubmit = async (event) => {
     event.preventDefault();
     const studentNumber = $("#registerStudentNumber").value.trim();
-    const emailLocal = $("#registerEmailLocal").value.trim();
     const password = $("#registerPassword").value;
     if (password !== $("#registerPasswordConfirm").value) { status($("#authStatus"), "入力内容が一致しません。", true); return; }
     try {
-      if (emailLocal) {
+      if (registrationMode === "student") {
         loading(true, "確認メールを送信中…");
         sessionStorage.setItem("caremateTestPending", JSON.stringify({ mode: "student", studentNumber }));
-        const user = await registerStudentAccount({ emailLocal, password });
+        const user = await registerStudentAccount({ studentNumber, password });
         await routeAuthenticatedUser(user);
       } else {
         loading(true, "管理者権限を確認中…");
