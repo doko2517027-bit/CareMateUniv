@@ -18,7 +18,7 @@ import {
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=14";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=16";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
-import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=15";
+import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=16";
 import { uploadStudyFile } from "./upload.js?v=1";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -154,6 +154,7 @@ function fillQuestionEditor(item = {}, index = 0, originalIndex = "") {
     <div class="answer-editor" data-role="fill-answers"><div class="editor-section-heading"><strong>穴埋め解答欄</strong><small>複数の空欄にも対応</small></div>${answers.map((answer, answerIndex) => `<div class="editor-input-row"><input data-role="fill-answer" value="${escapeHtml(answer)}" placeholder="解答 ${answerIndex + 1}"><button class="danger-button compact-button" data-action="delete-fill-answer" type="button" aria-label="解答欄を削除">−</button></div>`).join("")}</div>
     <button class="secondary-button" data-action="add-fill-answer" type="button">＋ 解答欄を追加</button>
     <label>解説<textarea data-role="explanation" rows="3" placeholder="答えの理由や補足を入力">${escapeHtml(item.explanation || "")}</textarea></label>
+    <label>出典・ソース（任意）<textarea data-role="source" rows="2" maxlength="1000" placeholder="例：第3回講義資料 p.12、教科書名・ページ、参考URL">${escapeHtml(item.source || "")}</textarea><small class="field-note">この問題の根拠となる資料やページを入力してください。</small></label>
   </article>`;
 }
 
@@ -171,6 +172,7 @@ function quizQuestionEditor(item = {}, index = 0, originalIndex = "") {
     <div class="answer-editor" data-role="quiz-choices"><div class="editor-section-heading"><strong>選択肢・答え</strong><small>正解を複数選択できます</small></div>${choices.map((choice, choiceIndex) => quizChoiceEditor(choice, correct.includes(choiceIndex), choiceIndex)).join("")}</div>
     <button class="secondary-button" data-action="add-choice" type="button">＋ 選択肢を追加</button>
     <label>解説<textarea data-role="explanation" rows="3" placeholder="答えの理由や補足を入力">${escapeHtml(item.explanation || "")}</textarea></label>
+    <label>出典・ソース（任意）<textarea data-role="source" rows="2" maxlength="1000" placeholder="例：第3回講義資料 p.12、教科書名・ページ、参考URL">${escapeHtml(item.source || "")}</textarea><small class="field-note">この問題の根拠となる資料やページを入力してください。</small></label>
   </article>`;
 }
 
@@ -284,13 +286,13 @@ function unitEditor(unit = {}, context, target = null) {
       event.preventDefault();
       const fill_blank = [...fillList.querySelectorAll('[data-kind="fill"]')].map((card) => {
         const answers = [...card.querySelectorAll('[data-role="fill-answer"]')].map((input) => input.value.trim()).filter(Boolean);
-        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
       });
       const quiz = [...quizList.querySelectorAll('[data-kind="quiz"]')].map((card) => {
         const rows = [...card.querySelectorAll(".quiz-choice-row")];
         const choices = rows.map((row) => row.querySelector('[data-role="quiz-choice"]').value.trim());
         const answers = rows.map((row, index) => row.querySelector('[data-role="quiz-correct"]').checked ? index : -1).filter((index) => index >= 0);
-        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
       });
       if (fill_blank.some((item) => !item.question || !item.answers.length)) { status($("#unitStatus"), "穴埋め問題の問題文と解答を入力してください。", true); return; }
       if (quiz.some((item) => !item.question || item.choices.length < 2 || item.choices.some((choice) => !choice) || !Array.isArray(item.answers) && !Number.isInteger(item.answer))) { status($("#unitStatus"), "選択問題の問題文・2つ以上の選択肢・正解を入力してください。", true); return; }

@@ -37,10 +37,17 @@ test("学生管理一覧はメールアドレスを表示しない", () => {
   assert.doesNotMatch(admin, /学生\$\{user\.email/);
 });
 
+test("各問題に出典・ソースを登録して保存できる", () => {
+  assert.match(app, /出典・ソース（任意）/);
+  assert.match(app, /data-role="source"/);
+  assert.match(app, /source: card\.querySelector\('\[data-role="source"\]'\)\.value\.trim\(\)/);
+  assert.match(store, /source: safeText\(item\.source, 1000\)/);
+});
+
 test("更新した資産番号がHTMLとService Workerで一致する", () => {
   assert.match(index, /styles\.css\?v=18/);
-  assert.match(index, /app\.js\?v=19/);
-  assert.match(worker, /caremate-univ-v19/);
-  assert.match(worker, /store\.js\?v=15/);
+  assert.match(index, /app\.js\?v=20/);
+  assert.match(worker, /caremate-univ-v20/);
+  assert.match(worker, /store\.js\?v=16/);
   assert.match(worker, /admin\.js\?v=16/);
 });

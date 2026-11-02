@@ -98,11 +98,11 @@ export function normalizeUnitData(input = {}) {
     const fallback = Math.max(0, Number(item.answer) || 0);
     const answers = (Array.isArray(item.answers) && item.answers.length ? item.answers : [fallback])
       .map(Number).filter((value, index, values) => Number.isInteger(value) && value >= 0 && value < choices.length && values.indexOf(value) === index);
-    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...imageFields(item) };
   }).filter((item) => item.question && item.choices.length >= 2 && item.answer < item.choices.length) : [];
   const fillBlank = Array.isArray(input.fill_blank) ? input.fill_blank.map((item) => {
     const answers = Array.isArray(item.answers) ? item.answers.map((answer) => safeText(answer, 300)).filter(Boolean) : cleanLines(item.answer);
-    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...imageFields(item) };
   }).filter((item) => item.question && item.answers.length) : [];
   return {
     summary: Array.isArray(input.summary) ? input.summary.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.summary),
