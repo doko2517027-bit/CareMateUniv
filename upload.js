@@ -1,4 +1,4 @@
-import { callProtectedApi } from "./store.js?v=16";
+import { callProtectedApi } from "./store.js?v=17";
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 

@@ -88,6 +88,13 @@ export function watchUnit(subjectId, unitId, onChange, onError = () => {}) {
   }, onError);
 }
 export function normalizeUnitData(input = {}) {
+  const requireSources = (items, label) => {
+    items.forEach((item, index) => {
+      if (!safeText(item?.source, 1000)) throw new Error(`${label} ${index + 1} の出典・ソースを入力してください。`);
+    });
+  };
+  requireSources(Array.isArray(input.fill_blank) ? input.fill_blank : [], "穴埋め問題");
+  requireSources(Array.isArray(input.quiz) ? input.quiz : [], "選択問題");
   const imageFields = (item) => ({
     imageUrl: safeText(item.imageUrl, 1500),
     imagePublicId: safeText(item.imagePublicId, 500),

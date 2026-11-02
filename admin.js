@@ -26,7 +26,7 @@ import {
   setUnitPublication,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=16";
+} from "./store.js?v=17";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
