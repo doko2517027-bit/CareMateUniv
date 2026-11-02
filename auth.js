@@ -22,6 +22,7 @@ import {
   runTransaction,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { clearStoredSession } from "./session.js?v=1";
 
 const PROFILE_COLLECTION = "studyAppUsers";
 const INVITE_COLLECTION = "studyAppInvites";
@@ -256,7 +257,10 @@ export async function changeOwnPassword(currentPassword, nextPassword) {
   return callApi("changeStudyAppPassword", { currentPassword, nextPassword }, { authenticated: true });
 }
 
-export async function logout() { await signOut(auth); }
+export async function logout() {
+  clearStoredSession();
+  await signOut(auth);
+}
 
 export function authErrorMessage(error) {
   const map = {

@@ -51,9 +51,11 @@ test("各問題の出典・ソースは必須で保存し学生側へ表示す�
 });
 
 test("更新した資産番号がHTMLとService Workerで一致する", () => {
-  assert.match(index, /styles\.css\?v=18/);
-  assert.match(index, /app\.js\?v=21/);
-  assert.match(worker, /caremate-univ-v21/);
+  assert.match(index, /styles\.css\?v=19/);
+  assert.match(index, /app\.js\?v=22/);
+  assert.match(worker, /caremate-univ-v22/);
+  assert.match(worker, /auth\.js\?v=10/);
+  assert.match(worker, /session\.js\?v=1/);
   assert.match(worker, /store\.js\?v=17/);
   assert.match(worker, /exam\.js\?v=15/);
   assert.match(worker, /admin\.js\?v=16/);

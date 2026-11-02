@@ -14,12 +14,22 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=9";
+} from "./auth.js?v=10";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=15";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=16";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { uploadStudyFile } from "./upload.js?v=1";
+import {
+  SESSION_ABSOLUTE_MS,
+  SESSION_IDLE_MS,
+  SESSION_WARNING_MS,
+  createStoredSession,
+  ensureStoredSession,
+  evaluateSession,
+  readStoredSession,
+  touchStoredSession,
+} from "./session.js?v=1";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -35,6 +45,89 @@ let knownAnnouncementRevisions = new Map();
 let latestAnnouncements = [];
 let latestAnnouncementReads = new Map();
 let registrationMode = "student";
+let sessionTimer = null;
+let sessionEnding = false;
+let sessionWarningKey = "";
+let lastActivityWrite = 0;
+
+const SESSION_END_MESSAGE_KEY = "cmuSessionEndMessage";
+const activityEvents = ["pointerdown", "keydown", "touchstart", "scroll"];
+
+function sessionDurationText(milliseconds) {
+  const hours = Math.floor(milliseconds / 3_600_000);
+  const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
+  return hours ? `${hours}時間${minutes ? `${minutes}分` : ""}` : `${minutes}分`;
+}
+
+function recordSessionActivity() {
+  const uid = auth.currentUser?.uid;
+  if (!uid || sessionEnding) return;
+  const now = Date.now();
+  if (now - lastActivityWrite < 15_000) return;
+  lastActivityWrite = now;
+  touchStoredSession(uid, now);
+  sessionWarningKey = "";
+}
+
+async function endExpiredSession(reason) {
+  if (sessionEnding) return;
+  sessionEnding = true;
+  stopSessionGuard();
+  sessionStorage.setItem(SESSION_END_MESSAGE_KEY, reason === "absolute"
+    ? "安全のためログインから12時間が経過したため、自動的にログアウトしました。もう一度ログインしてください。"
+    : "30分間操作がなかったため、自動的にログアウトしました。もう一度ログインしてください。");
+  loading(true, "安全のためログアウトしています…");
+  await logout().catch(() => {});
+  location.reload();
+}
+
+function checkSessionExpiry() {
+  const uid = auth.currentUser?.uid;
+  if (!uid || sessionEnding) return;
+  const stored = readStoredSession(uid);
+  if (!stored) { endExpiredSession("idle"); return; }
+  const state = evaluateSession(stored);
+  if (state.expired) { endExpiredSession(state.reason); return; }
+  if (state.remainingMs <= SESSION_WARNING_MS) {
+    const key = `${state.reason}:${Math.ceil(state.remainingMs / 60_000)}`;
+    if (sessionWarningKey !== key) {
+      sessionWarningKey = key;
+      toast(state.reason === "absolute"
+        ? "安全のため、まもなくログイン期限になります。作業を保存してください。"
+        : "まもなく自動ログアウトします。操作を続けると利用時間が更新されます。", true);
+    }
+  }
+}
+
+function startSessionGuard(uid) {
+  stopSessionGuard();
+  ensureStoredSession(uid);
+  sessionEnding = false;
+  sessionWarningKey = "";
+  lastActivityWrite = Date.now();
+  activityEvents.forEach((eventName) => window.addEventListener(eventName, recordSessionActivity, { passive: true }));
+  document.addEventListener("visibilitychange", checkSessionExpiry);
+  window.addEventListener("storage", checkSessionExpiry);
+  sessionTimer = window.setInterval(checkSessionExpiry, 15_000);
+  checkSessionExpiry();
+}
+
+function stopSessionGuard() {
+  if (sessionTimer) window.clearInterval(sessionTimer);
+  sessionTimer = null;
+  activityEvents.forEach((eventName) => window.removeEventListener(eventName, recordSessionActivity));
+  document.removeEventListener("visibilitychange", checkSessionExpiry);
+  window.removeEventListener("storage", checkSessionExpiry);
+}
+
+async function ensureCurrentSession(user) {
+  const stored = readStoredSession(user.uid);
+  if (!stored) { createStoredSession(user.uid); return true; }
+  const state = evaluateSession(stored);
+  if (!state.expired) return true;
+  await endExpiredSession(state.reason);
+  return false;
+}
 
 function showOnly(selector) { screens.forEach((item) => { $(item).hidden = item !== selector; }); }
 function loading(show, message = "読み込み中…") { $("#loadingMessage").textContent = message; $("#loadingOverlay").hidden = !show; }
@@ -419,7 +512,7 @@ function setTheme(theme) {
 
 async function renderSettings(root) {
   const accountLine = profile.role === "admin" ? profile.studentNumber : `${profile.studentNumber} / ${profile.email}`;
-  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : profile.role === "admin" ? "管理者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
+  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : profile.role === "admin" ? "管理者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>ログイン保護</h2><p>共有端末や置き忘れから学習情報を守ります。</p></div><span class="chip">自動</span></div><div class="security-summary"><p><strong>操作がない場合</strong><span>${sessionDurationText(SESSION_IDLE_MS)}で自動ログアウト</span></p><p><strong>連続ログイン</strong><span>最長${sessionDurationText(SESSION_ABSOLUTE_MS)}</span></p></div><p class="hint">期限が切れた後は、学籍番号とパスワードでもう一度ログインしてください。</p></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
   $("#passwordForm", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const output = $("#passwordStatus", root); if (form.get("nextPassword") !== form.get("confirmPassword")) { status(output, "新しいパスワードが一致しません。", true); return; } try { loading(true, "パスワードを変更中…"); await changeOwnPassword(form.get("currentPassword"), form.get("nextPassword")); event.currentTarget.reset(); status(output, "パスワードを変更しました。"); } catch (error) { status(output, authErrorMessage(error), true); } finally { loading(false); } });
   $("#logoutButton", root).addEventListener("click", async () => { if (await confirmDialog("ログアウトしますか？")) { loading(true, "ログアウト中…"); await logout(); location.reload(); } });
 }
@@ -451,12 +544,14 @@ async function enterApp(foundProfile) {
   $("#noticesNav").hidden = false;
   startAdminReportWatch();
   startStudentNoticeWatch();
+  startSessionGuard(auth.currentUser.uid);
   showOnly("#appShell");
   const requestedPage = new URLSearchParams(location.search).get("page");
   await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : requestedPage === "notices" ? "notices" : "test");
 }
 
 async function routeAuthenticatedUser(user) {
+  if (!await ensureCurrentSession(user)) return;
   const foundProfile = await getCurrentProfile();
   if (foundProfile) {
     if (foundProfile.role === "admin" || user.emailVerified) { await enterApp(foundProfile); return; }
@@ -493,7 +588,7 @@ function bindEvents() {
     $("#toggleAdminRegistration").textContent = admin ? "学生として登録する" : "管理者として登録する";
     $("#registerForm").reset();
   };
-  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); createStoredSession(user.uid); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
   $("#forgotPassword").onclick = async () => {
     const result = await formDialog("パスワードを忘れた方", [{ name: "studentNumber", label: "学籍番号", value: "", required: true }], "送信");
     if (!result) return;
@@ -513,11 +608,13 @@ function bindEvents() {
         loading(true, "確認メールを送信中…");
         sessionStorage.setItem("caremateTestPending", JSON.stringify({ mode: "student", studentNumber }));
         const user = await registerStudentAccount({ studentNumber, password });
+        createStoredSession(user.uid);
         await routeAuthenticatedUser(user);
       } else {
         loading(true, "管理者権限を確認中…");
         sessionStorage.setItem("caremateTestPending", JSON.stringify({ mode: "admin", studentNumber, registrationCode: password }));
         const user = await beginAdminRegistration({ studentNumber, registrationCode: password });
+        createStoredSession(user.uid);
         await routeAuthenticatedUser(user);
       }
     } catch (error) {
@@ -551,10 +648,16 @@ function bindEvents() {
 async function start() {
   bindEvents();
   setTheme(localStorage.getItem("caremateTestTheme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  const sessionEndMessage = sessionStorage.getItem(SESSION_END_MESSAGE_KEY) || "";
+  sessionStorage.removeItem(SESSION_END_MESSAGE_KEY);
   loading(true, "利用状態を確認中…");
   try {
     const user = await authReady();
-    if (user) await routeAuthenticatedUser(user); else showOnly("#authScreen");
+    if (user) await routeAuthenticatedUser(user);
+    else {
+      showOnly("#authScreen");
+      if (sessionEndMessage) status($("#authStatus"), sessionEndMessage, true);
+    }
   } catch (error) { await logout().catch(() => {}); showOnly("#authScreen"); status($("#authStatus"), authErrorMessage(error), true); }
   finally { loading(false); }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
