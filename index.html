@@ -126,6 +126,7 @@
     </header>
     <main id="appContent" class="app-content"></main>
     <nav id="bottomNav" class="bottom-nav" aria-label="メインメニュー">
+      <button type="button" data-page="dictionary" id="dictionaryNav" hidden><span>📖</span><b>辞書</b></button>
       <button type="button" data-page="test" class="active"><span>📚</span><b>試験対策</b></button>
       <button type="button" data-page="analytics"><span>📊</span><b>学習分析</b></button>
       <button type="button" data-page="notices" id="noticesNav" hidden><span>📣</span><b>お知らせ</b><i id="noticeUnreadBadge" class="notification-count-badge" hidden>0</i></button>
@@ -137,6 +138,6 @@
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <script defer src="intro.js?v=1"></script>
-  <script type="module" src="app.js?v=22"></script>
+  <script type="module" src="app.js?v=23"></script>
 </body>
 </html>

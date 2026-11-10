@@ -1,4 +1,5 @@
 import { auth, isAdminAuthEmail } from "./firebase.js?v=8";
+import { renderDictionary } from "./dictionary.js?v=1";
 import {
   authErrorMessage,
   authReady,
@@ -518,6 +519,7 @@ async function renderSettings(root) {
 }
 
 async function navigate(page) {
+  if (page === 'dictionary' && profile.studentNumber !== '2510044') page = 'test';
   stopStudyUnitWatch();
   stopNoticeViewWatch();
   if (page === "admin" && profile.role !== "admin") page = "test";
@@ -527,6 +529,7 @@ async function navigate(page) {
   loading(true, "画面を読み込み中…");
   try {
     const root = $("#appContent");
+    if (page === 'dictionary') { $('#pageTitle').textContent = '辞書'; await renderDictionary(root, profile); }
     if (page === "test") await renderTestHome(root, context);
     if (page === "analytics") await renderPersonalAnalytics(root, context);
     if (page === "settings") await renderSettings(root);
@@ -541,6 +544,7 @@ async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
   $("#adminNav").hidden = profile.role !== "admin";
+  $('#dictionaryNav').hidden = profile.studentNumber !== '2510044';
   $("#noticesNav").hidden = false;
   startAdminReportWatch();
   startStudentNoticeWatch();
