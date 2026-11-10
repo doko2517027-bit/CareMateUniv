@@ -10,14 +10,14 @@ export async function renderDictionary(root, profile) {
   const records = (await getDocs(ref)).docs.map(d => ({ id: d.id, ...d.data() }));
   const element = (tag, text, className = '') => { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; };
   root.replaceChildren();
-  const header = element('section', '', 'panel');
+  const header = element('section', '', 'panel form-stack dictionary-header');
   header.append(element('h2', '自分の医療用語辞書'), element('p', '気になった言葉を、意味や画像と一緒に残せます。', 'hint'));
   const add = element('button', '＋ 単語を登録', 'primary-button');
-  const search = element('input', ''); search.placeholder = '単語・意味を検索'; search.setAttribute('aria-label', '辞書を検索'); search.style.cssText = 'width:100%;box-sizing:border-box;margin-top:16px';
+  const search = element('input', '', 'field'); search.placeholder = '用語・フリガナ・意味を検索'; search.setAttribute('aria-label', '辞書を検索');
   const order = element('select', ''); order.setAttribute('aria-label', '並び順');
   for (const [value, text] of [['kana', '五十音順'], ['updated', '更新が新しい順']]) { const option = element('option', text); option.value = value; order.append(option); }
   const count = element('p', '', 'hint'); header.append(add, search, order, count); root.append(header);
-  const list = element('section', '', 'form-stack'); root.append(list);
+  const list = element('section', '', 'grid dictionary-list'); root.append(list);
   function draw() {
     list.replaceChildren();
     const q = normalize(kana(search.value));
@@ -25,17 +25,17 @@ export async function renderDictionary(root, profile) {
     count.textContent = `${visible.length}件 / 登録 ${records.length}件`;
     if (!visible.length) list.append(element('p', q ? '一致する単語がありません。' : '「単語を登録」から最初の言葉を追加してください。', 'panel'));
     for (const record of visible) {
-      const card = element('article', '', 'panel');
+      const card = element('article', '', 'card dictionary-card');
       card.append(element('h2', record.word));
       if (record.reading) card.append(element('p', record.reading, 'hint'));
       const meaning = element('p', record.meaning); meaning.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere'; card.append(meaning);
       if (record.imageUrl) { const image = element('img', ''); image.src = record.imageUrl; image.alt = record.word; image.loading = 'lazy'; image.style.cssText = 'max-width:100%;max-height:320px;object-fit:contain;border-radius:12px'; card.append(image); }
-      const edit = element('button', '編集', 'secondary-button'); edit.onclick = () => editor(record); card.append(edit); list.append(card);
+      const edit = element('button', '編集', 'secondary-button'); edit.onclick = () => editor(record); const actions = element('div', '', 'card-actions'); actions.append(edit); card.append(actions); list.append(card);
     }
   }
   function editor(record = {}) {
     root.replaceChildren();
-    const form = element('form', '', 'panel form-stack'); form.append(element('h2', record.id ? '単語を編集' : '単語を登録'));
+    const form = element('form', '', 'panel form-stack dictionary-editor'); form.append(element('h2', record.id ? '用語を編集' : '用語を登録'));
     function field(title, tag, value) { const label = element('label', title); const input = element(tag, ''); input.value = value || ''; input.required = true; input.maxLength = tag === 'input' ? 120 : 10000; if (tag === 'textarea') input.rows = 7; label.append(input); form.append(label); return input; }
     const word = field('用語', 'input', record.word); const reading = field('フリガナ', 'input', record.reading); reading.placeholder = '例：シンフカ'; const meaning = field('意味・説明', 'textarea', record.meaning);
     const label = element('label', '画像（任意・JPEG / PNG / WebP、10MBまで）'); const file = element('input', ''); file.type = 'file'; file.accept = 'image/jpeg,image/png,image/webp'; label.append(file); form.append(label);
