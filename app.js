@@ -1,5 +1,5 @@
 import { auth, isAdminAuthEmail } from "./firebase.js?v=8";
-import { renderDictionary } from "./dictionary.js?v=3";
+import { renderDictionary } from "./dictionary.js?v=4";
 import {
   authErrorMessage,
   authReady,

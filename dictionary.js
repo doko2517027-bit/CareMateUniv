@@ -13,10 +13,14 @@ export async function renderDictionary(root, profile) {
   const header = element('section', '', 'panel form-stack dictionary-header');
   header.append(element('h2', '自分の医療用語辞書'), element('p', '気になった言葉を、意味や画像と一緒に残せます。', 'hint'));
   const add = element('button', '＋ 単語を登録', 'primary-button');
-  const search = element('input', '', 'field'); search.placeholder = '用語・フリガナ・意味を検索'; search.setAttribute('aria-label', '辞書を検索');
-  const order = element('select', ''); order.setAttribute('aria-label', '並び順');
+  const search = element('input', '', 'dictionary-control'); search.type = 'search'; search.placeholder = '用語・フリガナ・意味'; search.setAttribute('aria-label', '辞書を検索');
+  const order = element('select', '', 'dictionary-control'); order.setAttribute('aria-label', '並び順');
   for (const [value, text] of [['kana', '五十音順'], ['updated', '更新が新しい順']]) { const option = element('option', text); option.value = value; order.append(option); }
-  const count = element('p', '', 'hint'); header.append(add, search, order, count); root.append(header);
+  const controls = element('div', '', 'dictionary-controls');
+  const searchLabel = element('label', '検索'); searchLabel.append(search);
+  const orderLabel = element('label', '並び順'); const selectWrap = element('span', '', 'dictionary-select'); selectWrap.append(order); orderLabel.append(selectWrap);
+  controls.append(searchLabel, orderLabel);
+  const count = element('p', '', 'hint'); header.append(add, controls, count); root.append(header);
   const list = element('section', '', 'grid dictionary-list'); root.append(list);
   function draw() {
     list.replaceChildren();
