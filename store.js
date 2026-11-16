@@ -273,6 +273,13 @@ export async function listPublicationRequests() {
   return rows.docs.map(row => ({ ...row.data(), id: row.id }));
 }
 
+export function watchPendingPublications(onChange, onError) {
+  const pending = query(collection(db, "studyAppPublicationRequests"), where("status", "==", "pending"));
+  return onSnapshot(pending, { includeMetadataChanges: true }, snapshot => {
+    if (!snapshot.metadata.fromCache) onChange(snapshot.docs.map(row => ({ id: row.id, ...row.data() })));
+  }, onError);
+}
+
 export async function listOwnPublicationRequests() {
   const rows = await getDocsFromServer(query(
     collection(db, "studyAppPublicationRequests"),

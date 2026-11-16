@@ -19,9 +19,10 @@ import {
   resendVerification,
 } from "./auth.js?v=15";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=17";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=35";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=36";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
+import { watchPendingPublications } from "./store.js?v=30";
 import { uploadStudyFile } from "./upload.js?v=1";
 import {
   SESSION_ABSOLUTE_MS,
@@ -41,6 +42,7 @@ let profile = null;
 let currentPage = "test";
 let toastTimer = null;
 let stopReportWatch = null;
+let stopPublicationWatch = null;
 let knownOpenReportIds = new Set();
 let stopNoticeBadgeWatch = null;
 let stopNoticeReadWatch = null;
@@ -483,6 +485,41 @@ function startAdminReportWatch() {
   }, (error) => console.warn("修正依頼の通知を更新できませんでした。", error));
 }
 
+function startPublicationWatch() {
+  stopPublicationWatch?.();
+  stopPublicationWatch = null;
+  const uid = auth.currentUser?.uid;
+  if (!uid || !["admin", "staff"].includes(profile?.role)) return;
+  const storageKey = `cmu-checked-publications-${uid}`;
+  let seen;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored !== null) seen = new Set(JSON.parse(stored));
+  } catch {}
+  const notify = async request => {
+    toast("新しい問題公開申請が届きました。");
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      const url = new URL(location.pathname, location.origin);
+      url.searchParams.set("page", "admin");
+      url.searchParams.set("publication", request.id);
+      const options = { body: "タップして公開申請を確認", icon: "assets/cmu-icon.png", tag: `cmu-publication-${request.id}`, data: { url: url.href } };
+      const registration = await navigator.serviceWorker?.getRegistration();
+      if (registration?.active) await registration.showNotification("問題公開申請", options);
+      else {
+        const notification = new Notification("問題公開申請", options);
+        notification.onclick = () => { window.focus(); location.href = url.href; };
+      }
+    } catch (error) { console.warn("公開申請の通知を表示できませんでした。", error); }
+  };
+  stopPublicationWatch = watchPendingPublications(rows => {
+    if (auth.currentUser?.uid !== uid) return;
+    if (seen) rows.filter(row => row.authorUid !== uid && !seen.has(row.id)).forEach(notify);
+    seen = new Set(rows.map(row => row.id));
+    try { localStorage.setItem(storageKey, JSON.stringify([...seen])); } catch {}
+  }, error => console.warn("公開申請を監視できませんでした。", error));
+}
+
 function updateNoticeBadge() {
   const count = latestAnnouncements.filter((item) => !latestAnnouncementReads.has(item.id)
     || Number(latestAnnouncementReads.get(item.id) || 0) < Number(item.notificationRevision || 0)).length;
@@ -562,7 +599,7 @@ async function renderSettings(root) {
   $("#logoutButton", root).addEventListener("click", async () => { if (await confirmDialog("ログアウトしますか？")) { loading(true, "ログアウト中…"); await logout(); location.reload(); } });
 }
 
-async function navigate(page) {
+async function navigate(page, publicationId = "") {
   if (page === 'dictionary' && profile.studentNumber !== '2510044') page = 'test';
   stopStudyUnitWatch();
   stopNoticeViewWatch();
@@ -580,8 +617,8 @@ async function navigate(page) {
     if (page === "analytics") await renderPersonalAnalytics(root, context);
     if (page === "settings") await renderSettings(root);
     if (page === "notices") renderStudentNotices(root, context, { focusId: new URLSearchParams(location.search).get("notice") || "" });
-    if (page === "admin") await renderAdmin(root, context);
-    if (root.isConnected) window.scrollTo({ top: 0, behavior: "instant" });
+    if (page === "admin") await renderAdmin(root, context, publicationId);
+    if (root.isConnected && !publicationId) window.scrollTo({ top: 0, behavior: "instant" });
   } catch (error) {
     if (!root.isConnected) return;
     root.innerHTML = `<section class="panel"><div class="empty"><strong>画面を読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryPage" class="primary-button">再読み込み</button></div></section>`;
@@ -597,11 +634,14 @@ async function enterApp(foundProfile) {
   $('#dictionaryNav').hidden = profile.studentNumber !== '2510044';
   $("#noticesNav").hidden = false;
   startAdminReportWatch();
+  startPublicationWatch();
   startStudentNoticeWatch();
   startSessionGuard(auth.currentUser.uid);
   showOnly("#appShell");
   const requestedPage = new URLSearchParams(location.search).get("page");
-  await navigate(requestedPage === "admin" && ["admin", "staff"].includes(profile.role) ? "admin" : requestedPage === "notices" ? "notices" : "test");
+  const canReview = requestedPage === "admin" && ["admin", "staff"].includes(profile.role);
+  const publicationId = new URLSearchParams(location.search).get("publication") || "";
+  await navigate(canReview ? "admin" : requestedPage === "notices" ? "notices" : "test", canReview ? publicationId : "");
 }
 
 async function routeAuthenticatedUser(user) {

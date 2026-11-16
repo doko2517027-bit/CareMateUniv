@@ -48,8 +48,9 @@ const progressRing = (value, label) => {
   return `<span class="progress-ring analytics-progress-ring" role="img" aria-label="${escapeHtml(label)} ${safe}%"><svg viewBox="0 0 42 42" aria-hidden="true"><circle class="progress-ring-track" cx="21" cy="21" r="17" pathLength="100"></circle><circle class="progress-ring-value" cx="21" cy="21" r="17" pathLength="100" stroke-dasharray="${safe} ${100 - safe}"></circle></svg><span><b>${safe}</b><small>%</small></span></span>`;
 };
 
-export function renderAdmin(root, context) {
+export function renderAdmin(root, context, publicationId = "") {
   if (context.profile.role === "author") return renderAuthorTests(root, context);
+  if (publicationId) return renderPublicationQueue(root, context, publicationId);
   renderAdminMenu(root, context);
 }
 
@@ -156,7 +157,7 @@ function publicationDetails(record) {
   return `<details><summary>${previous ? "変更前 → 変更後" : "追加内容を見る"}</summary><div class="form-stack">${blocks.join("") || '<p class="hint">表示対象の変更はありません。</p>'}</div></details>`;
 }
 
-async function renderPublicationQueue(root, context) {
+async function renderPublicationQueue(root, context, publicationId = "") {
   root.innerHTML = adminHeader("公開申請", "内容を確認して公開を承認します。");
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const rows = await listPublicationRequests();
@@ -188,6 +189,9 @@ async function renderPublicationQueue(root, context) {
     }
   });
   if (!rows.length) root.insertAdjacentHTML("beforeend", '<p class="empty">未審査の申請はありません。</p>');
+  if (publicationId && !rows.some(request => request.id === publicationId)) {
+    root.insertAdjacentHTML("beforeend", '<p class="panel">通知の申請はすでに処理されたか、一覧にありません。</p>');
+  }
   for (const request of rows) {
     const panel = document.createElement("section");
     panel.className = "panel form-stack";
@@ -204,6 +208,13 @@ async function renderPublicationQueue(root, context) {
       panel.append(button);
     }
     root.append(panel);
+    if (request.id === publicationId) {
+      const details = panel.querySelector("details");
+      if (details) details.open = true;
+      panel.tabIndex = -1;
+      panel.focus();
+      panel.scrollIntoView({ block: "start" });
+    }
   }
 }
 
