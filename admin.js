@@ -27,16 +27,13 @@ import {
   updateUserAccess,
   updateStudyUserName,
   callProtectedApi,
-  listStudentRoster,
-  addStudentToRoster,
-  removeStudentFromRoster,
   updateQuestionReportStatus,
   requestUnitPublication,
   listPublicationRequests,
   listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=25";
+} from "./store.js?v=26";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -250,40 +247,6 @@ async function renderUserManager(root, context) {
   const staff = data.users.filter((user) => user.role === "staff");
   const authors = data.users.filter(user => user.role === "author");
   const students = data.users.filter(user => user.role === "student");
-  const rosterPanel = document.createElement("section");
-  rosterPanel.className = "panel form-stack";
-  rosterPanel.innerHTML = `<h2>未利用学生の事前登録</h2><form class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>名前<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">事前登録する</button></form><div class="admin-list" aria-live="polite"></div>`;
-  const numbersInUse = new Set(data.users.map(user => String(user.studentNumber)));
-  const rosterList = rosterPanel.querySelector(".admin-list");
-  const rosterForm = rosterPanel.querySelector("form");
-  async function refreshRoster() {
-    const pending = (await listStudentRoster()).filter(item => !numbersInUse.has(item.studentNumber))
-      .sort((a, b) => a.studentNumber.localeCompare(b.studentNumber));
-    rosterList.innerHTML = pending.map(item => `<article class="admin-row roster-pending"><div><strong>${escapeHtml(item.name)}（${escapeHtml(item.studentNumber)}）</strong><p>未利用・本人登録待ち</p></div><button type="button" class="danger-button" data-remove-roster="${escapeHtml(item.studentNumber)}">事前登録を削除</button></article>`).join("") || '<p class="empty">未利用の学生はいません。</p>';
-    for (const button of rosterList.querySelectorAll("[data-remove-roster]")) {
-      button.onclick = async () => {
-        if (!await context.confirm("この学生の事前登録を削除しますか？")) return;
-        try { await removeStudentFromRoster(button.dataset.removeRoster); await refreshRoster(); }
-        catch (error) { context.toast(error.message, true); }
-      };
-    }
-  }
-  rosterForm.onsubmit = async event => {
-    event.preventDefault();
-    const submit = rosterForm.querySelector("button");
-    submit.disabled = true;
-    try {
-      const values = new FormData(rosterForm);
-      const number = String(values.get("studentNumber")).trim();
-      if (numbersInUse.has(number)) throw new Error("この学生はすでに本登録を完了しています。");
-      await addStudentToRoster(number, values.get("name"));
-      rosterForm.reset();
-      await refreshRoster();
-    } catch (error) { context.toast(error.message, true); }
-    finally { submit.disabled = false; }
-  };
-  registration.closest(".panel").after(rosterPanel);
-  refreshRoster().catch(() => { rosterList.textContent = "事前登録の一覧を読み込めませんでした。"; });
   root.querySelector("#studentUserList").closest(".user-group-panel").insertAdjacentHTML("beforebegin",
     '<section class="panel user-group-panel"><div class="panel-header"><h2>教職員一覧</h2><span id="staffCount" class="chip"></span></div><div id="staffUserList" class="admin-list"></div></section>');
   root.querySelector("#staffCount").textContent = `${staff.length}人`;

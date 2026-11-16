@@ -588,27 +588,6 @@ export async function updateStudyUserName(uid, value) {
   await updateDoc(doc(db, COLLECTIONS.users, uid), { name, updatedAt: serverTimestamp() });
 }
 
-export async function listStudentRoster() {
-  const rows = await getDocsFromServer(collection(db, "studyAppStudentRoster"));
-  return rows.docs.map(row => ({ studentNumber: row.id, name: row.data().name }));
-}
-
-export async function addStudentToRoster(studentNumber, name) {
-  const number = String(studentNumber || "").trim();
-  const cleanName = String(name || "").trim();
-  if (!/^\d{7}$/.test(number) || !cleanName || cleanName.length > 80) {
-    throw new Error("学籍番号7桁と名前（80文字以内）を入力してください。");
-  }
-  const ref = doc(db, "studyAppStudentRoster", number);
-  await runTransaction(db, async transaction => {
-    if ((await transaction.get(ref)).exists()) throw new Error("この学籍番号は事前登録済みです。");
-    transaction.set(ref, { name: cleanName, createdAt: serverTimestamp() });
-  });
-}
-
-export async function removeStudentFromRoster(studentNumber) {
-  await deleteDoc(doc(db, "studyAppStudentRoster", studentNumber));
-}
 
 export async function deleteStudyUser(uid) {
   const current = auth.currentUser;
