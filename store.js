@@ -19,6 +19,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 export const COLLECTIONS = Object.freeze({
@@ -210,20 +211,30 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
     quiz: questionIndexMap(current.quiz || [], published.quiz || []),
     fill_blank: questionIndexMap(current.fill_blank || [], published.fill_blank || []),
   };
-  await setDoc(unitRef, {
+  const actor = (await getDocFromServer(doc(db, COLLECTIONS.users, auth.currentUser.uid))).data();
+  const historyRef = doc(collection(db, "studyAppDirectPublications"));
+  const batch = writeBatch(db);
+  batch.set(unitRef, {
     ...published,
     draft: deleteField(),
     published: true,
     publishedAt: serverTimestamp(),
     publishedBy: auth.currentUser?.uid || "",
+    directPublicationId: historyRef.id,
     updatedAt: serverTimestamp(),
   }, { merge: true });
-  await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", id, "drafts", "edited"), {
+  batch.set(doc(db, COLLECTIONS.subjects, subjectId, "units", id, "drafts", "edited"), {
     ...published,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || "",
   });
-  await setDoc(doc(db, COLLECTIONS.subjects, subjectId), { published: true, updatedAt: serverTimestamp() }, { merge: true });
+  batch.set(doc(db, COLLECTIONS.subjects, subjectId), { published: true, updatedAt: serverTimestamp() }, { merge: true });
+  batch.set(historyRef, {
+    subjectId, unitId: id, name: published.name, actorUid: auth.currentUser.uid,
+    actorName: actor.name || "", actorRole: actor.studentNumber === "2510044" ? "owner" : actor.role,
+    recordedAt: serverTimestamp(),
+  });
+  await batch.commit();
   const changed = ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
   if (changed) {
     await callProtectedApi("cleanupStudyAppQuestionDeletion", {
@@ -267,6 +278,7 @@ export async function reviewPublication(request, approved) {
     const snapshot = await transaction.get(ref);
     const current = snapshot.data();
     if (current?.status !== "pending") throw new Error("この申請は審査済みです。");
+    const actor = (await transaction.get(doc(db, COLLECTIONS.users, auth.currentUser.uid))).data();
     if (approved) {
       const subject = doc(db, COLLECTIONS.subjects, current.subjectId);
       const unit = current.unitId ? doc(collection(subject, "units"), current.unitId) : doc(collection(subject, "units"));
@@ -280,8 +292,39 @@ export async function reviewPublication(request, approved) {
       });
       transaction.update(subject, { published: true, updatedAt: serverTimestamp() });
     }
-    transaction.update(ref, { status: approved ? "approved" : "rejected" });
+    transaction.update(ref, {
+      status: approved ? "approved" : "rejected", reviewedBy: auth.currentUser.uid,
+      reviewerName: actor.name || "", reviewerRole: actor.studentNumber === "2510044" ? "owner" : actor.role,
+      reviewedAt: serverTimestamp(),
+    });
   });
+}
+
+export async function listPublicationHistory() {
+  const [requests, direct, subjects] = await Promise.all([
+    getDocsFromServer(query(collection(db, "studyAppPublicationRequests"), where("status", "in", ["approved", "rejected"]))),
+    getDocsFromServer(collection(db, "studyAppDirectPublications")),
+    listSubjects(),
+  ]);
+  const units = (await Promise.all(subjects.map(async subject =>
+    (await listUnits(subject.id)).map(unit => ({ ...unit, subjectId: subject.id })),
+  ))).flat();
+  const byRequest = new Map(units.filter(unit => unit.publicationRequestId && !unit.directPublicationId)
+    .map(unit => [unit.publicationRequestId, unit]));
+  const legacy = units.filter(unit => unit.publishedAt && !unit.directPublicationId && !unit.publicationRequestId)
+    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt }));
+  const rows = [
+    ...direct.docs.map(row => ({ ...row.data(), status: "direct" })),
+    ...requests.docs.map(row => {
+      const data = row.data();
+      const unit = byRequest.get(row.id);
+      return { ...data, name: data.payload?.name, actorUid: data.reviewedBy || unit?.publishedBy, actorName: data.reviewerName,
+        actorRole: data.reviewerRole, recordedAt: data.reviewedAt || unit?.publishedAt };
+    }),
+    ...legacy,
+  ];
+  return { subjects, rows: rows.sort((a, b) =>
+    (b.recordedAt?.toMillis() || b.createdAt?.toMillis() || 0) - (a.recordedAt?.toMillis() || a.createdAt?.toMillis() || 0)) };
 }
 export async function setUnitPublication(subjectId, unitId, published) {
   await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId), {

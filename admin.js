@@ -33,9 +33,10 @@ import {
   updateQuestionReportStatus,
   requestUnitPublication,
   listPublicationRequests,
+  listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=24";
+} from "./store.js?v=25";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -103,6 +104,32 @@ async function renderPublicationQueue(root, context) {
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const rows = await listPublicationRequests();
   addOwnPublicationHistory(root);
+  const history = document.createElement("details");
+  history.className = "panel";
+  history.innerHTML = '<summary>公開・差し戻し履歴</summary><div class="admin-list" aria-live="polite"></div>';
+  root.append(history);
+  history.addEventListener("toggle", async () => {
+    if (!history.open || history.dataset.loaded) return;
+    history.dataset.loaded = "true";
+    const list = history.querySelector(".admin-list");
+    list.textContent = "履歴を読み込み中…";
+    try {
+      const [{ subjects, rows }, directory] = await Promise.all([listPublicationHistory(), listUsersAndInvites()]);
+      const subjectNames = new Map(subjects.map(subject => [subject.id, subject.name]));
+      const userNames = new Map(directory.users.map(user => [user.id, user.name]));
+      const roles = { owner: "主管理者", staff: "教職員", admin: "管理者" };
+      const labels = { approved: "承認して公開", rejected: "差し戻し", direct: "直接公開", legacy: "公開（過去の記録）" };
+      list.innerHTML = rows.map(row => {
+        const actor = row.actorName || userNames.get(row.actorUid) || "記録なし";
+        const role = roles[row.actorRole] || "当時の権限は記録なし";
+        const applicant = row.authorUid ? `<p>申請者：${escapeHtml(userNames.get(row.authorUid) || "記録なし")}</p>` : "";
+        return `<article class="card"><span class="chip${row.status === "rejected" ? " danger" : ""}">${labels[row.status]}</span><h3 style="overflow-wrap:anywhere">${escapeHtml(row.name || "単元")}</h3><p>${escapeHtml(subjectNames.get(row.subjectId) || "科目名の記録なし")}</p><p>担当：${escapeHtml(actor)}（${escapeHtml(role)}）</p>${applicant}<p>${row.recordedAt ? escapeHtml(dateText(row.recordedAt)) : "処理日時の記録なし"}</p></article>`;
+      }).join("") || '<p class="empty">履歴はありません。</p>';
+    } catch {
+      delete history.dataset.loaded;
+      list.textContent = "履歴を読み込めませんでした。閉じてから開き直してください。";
+    }
+  });
   if (!rows.length) root.insertAdjacentHTML("beforeend", '<p class="empty">未審査の申請はありません。</p>');
   for (const request of rows) {
     const panel = document.createElement("section");
@@ -508,7 +535,7 @@ async function renderUnitManager(root, context, category, subject) {
     const result = await context.form("単元設定", [{ name: "name", label: "単元名", value: editable.name || "", required: true }, { name: "range", label: "試験範囲", value: editable.range || "" }, { name: "order", label: "表示順", hint: "表示の順番の番号", type: "number", value: editable.order || 0 }]);
     if (!result) return;
     if (editable.published) {
-      if (context.profile.studentNumber === "2510044") await publishUnitDraft(subject.id, { ...editable, ...result });
+      if (context.profile.studentNumber === "2510044" || context.profile.role === "staff") await publishUnitDraft(subject.id, { ...editable, ...result });
       else await requestUnitPublication(subject.id, unit.id, { ...editable, ...result });
       context.toast("単元設定を保存し、学生側へ反映しました。");
     } else {
@@ -529,7 +556,7 @@ async function renderUnitManager(root, context, category, subject) {
       const action = result._action;
       delete result._action;
       if (action === "publish" || (fresh.published && action !== "unpublish")) {
-        if (context.profile.studentNumber === "2510044") {
+        if (context.profile.studentNumber === "2510044" || context.profile.role === "staff") {
           await publishUnitDraft(subject.id, { ...result, id: fresh.id });
           context.toast("公開しました。");
         } else {
