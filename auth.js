@@ -128,8 +128,23 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
   const number = cleanStudentNumber(studentNumber);
   const code = String(registrationCode || "").trim();
   if (code.length < 12) throw new Error("入力内容を確認してください。");
-  const result = await createUserWithEmailAndPassword(auth, adminAuthEmail(number), code);
+  const email = adminAuthEmail(number);
+  let result;
+  let created = false;
   try {
+    result = await createUserWithEmailAndPassword(auth, email, code);
+    created = true;
+  } catch (error) {
+    if (error.code !== "auth/email-already-in-use") throw error;
+    try {
+      result = await signInWithEmailAndPassword(auth, email, code);
+    } catch (loginError) {
+      if (["auth/invalid-credential", "auth/wrong-password"].includes(loginError.code)) throw error;
+      throw loginError;
+    }
+  }
+  try {
+    if (await getCurrentProfile()) throw Object.assign(new Error("この学籍番号は登録済みです。"), { code: "auth/email-already-in-use" });
     const inviteSnapshot = await getDoc(doc(db, INVITE_COLLECTION, code));
     const invite = inviteSnapshot.exists() ? inviteSnapshot.data() : null;
     if (!invite || invite.active !== true || !["admin", "author"].includes(invite.role) || invite.studentNumber !== number) {
@@ -137,7 +152,8 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
     }
     return result.user;
   } catch (error) {
-    await deleteUser(result.user).catch(() => {});
+    if (created) await deleteUser(result.user).catch(() => signOut(auth));
+    else await signOut(auth);
     throw error;
   }
 }
@@ -246,7 +262,18 @@ export async function finishAdminRegistration({ studentNumber, registrationCode,
   if (!user || user.email !== adminAuthEmail(number)) throw new Error("管理者登録を最初からやり直してください。");
   if (String(nextPassword || "").length < 8) throw new Error("新しいパスワードは8文字以上で設定してください。");
   await updatePassword(user, nextPassword);
-  return createProfile({ studentNumber: number, inviteCode: String(registrationCode || "").trim(), role: "admin" });
+  try {
+    return await createProfile({ studentNumber: number, inviteCode: String(registrationCode || "").trim(), role: "admin" });
+  } catch (error) {
+    // A failed profile write leaves the invite in place. Restore the temporary
+    // password only after confirming the profile was not actually committed.
+    try {
+      const profile = await getCurrentProfile();
+      if (profile) return profile;
+      await updatePassword(user, String(registrationCode || "").trim());
+    } catch { /* Preserve the original registration error. */ }
+    throw error;
+  }
 }
 
 export async function discardIncompleteAdminAccount() {

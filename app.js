@@ -16,7 +16,7 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=12";
+} from "./auth.js?v=13";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=15";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=17";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
