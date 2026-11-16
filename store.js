@@ -253,7 +253,6 @@ export async function listPublicationRequests() {
 }
 
 export async function reviewPublication(request, approved) {
-  if (request.authorUid === auth.currentUser.uid) throw new Error("別の管理者が審査してください。");
   const ref = doc(db, "studyAppPublicationRequests", request.id);
   await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(ref);

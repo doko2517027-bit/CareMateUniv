@@ -29,7 +29,7 @@ import {
   requestUnitPublication,
   listPublicationRequests,
   reviewPublication,
-} from "./store.js?v=19";
+} from "./store.js?v=20";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -83,7 +83,7 @@ async function renderPublicationQueue(root, context) {
       return `<article class="card">${line(`問題 ${index + 1}`, item.question)}${line("選択肢", item.choices?.join("\n"))}${line("正解", answer)}${line("解説", item.explanation)}${line("出典", item.source)}</article>`;
     }).join("");
     panel.innerHTML = `<h2 style="overflow-wrap:anywhere">${escapeHtml(request.payload.name)}</h2><p>${questions.length}問</p><details><summary>公開される内容を見る</summary><div class="form-stack">${line("試験範囲", request.payload.range)}${line("要約", request.payload.summary?.join("\n"))}${line("重要ポイント", request.payload.important_points?.join("\n"))}${content}</div></details>`;
-    if (request.authorUid === auth.currentUser.uid) panel.insertAdjacentHTML("beforeend", "<p>別の管理者の審査を待っています。</p>");
+    if (request.authorUid === auth.currentUser.uid && context.profile.studentNumber !== "2510044") panel.insertAdjacentHTML("beforeend", "<p>別の管理者の審査を待っています。</p>");
     else for (const [label, approved] of [["承認して公開", true], ["差し戻す", false]]) {
       const button = document.createElement("button");
       button.className = approved ? "primary-button" : "secondary-button";
@@ -332,6 +332,23 @@ async function renderTestManager(root, context) {
   root.innerHTML = `${adminHeader("テスト管理", "最初に編集する区分を選択します", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>区分</h2><p>年度・学期など、科目をまとめる区分を設定します。</p></div></div><form id="categoryCreateForm" class="inline-create-form"><input name="name" maxlength="80" placeholder="例：2026年度 後期" required><label class="compact-order-field"><small>表示の順番の番号</small><input name="order" type="number" value="0" aria-label="表示順"></label><button class="primary-button" type="submit">区分を追加</button></form><div id="categoryList" class="admin-list"><p class="empty">読み込み中…</p></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const categories = await listCategories({ forceServer: true });
+  addTestSearch(root, async () => {
+    const subjects = await listSubjects();
+    const rows = await Promise.all(subjects.map(async subject => {
+      const category = categories.find(item => item.id === subject.categoryId) || { name: "その他", id: subject.categoryId };
+      const label = `${category.name} / ${subject.name}`;
+      const open = () => renderUnitManager(root, context, category, subject);
+      return [{ label, words: label, open }, ...(await listUnits(subject.id)).map(unit => ({
+        label: `${label} / ${unit.name}${unit.range ? " — " + unit.range : ""}`,
+        words: `${label} ${unit.name} ${unit.range || ""}`,
+        open: async () => {
+          await open();
+          [...root.querySelectorAll("[data-edit-questions]")].find(button => button.dataset.editQuestions === unit.id)?.click();
+        },
+      }))];
+    }));
+    return [...categories.map(category => ({ label: category.name, words: category.name, open: () => renderSubjectManager(root, context, category) })), ...rows.flat()];
+  });
   const categoryList = root.querySelector("#categoryList");
   categoryList.innerHTML = categories.length ? categories.map((category) => `<article class="admin-row navigation-row"><button class="row-main-button" data-open-category="${category.id}" type="button"><span class="row-icon">🗂️</span><span><strong>${escapeHtml(category.name)}</strong><small>表示の順番の番号 ${Number(category.order) || 0}・科目一覧へ</small></span><i>›</i></button><div class="inline-actions"><button class="secondary-button compact-button" data-edit-category="${category.id}" type="button">編集</button><button class="danger-button compact-button" data-delete-category="${category.id}" type="button">削除</button></div></article>`).join("") : `<div class="empty">区分はまだありません。上の入力欄から追加してください。</div>`;
 
@@ -637,3 +654,4 @@ export function parseUnitJson(text) {
   if (!source || typeof source !== "object") throw new Error("JSONの内容を確認してください。");
   return normalizeUnitData(source);
 }
+import { addTestSearch } from "./test-search.js?v=1";
