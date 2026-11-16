@@ -255,7 +255,7 @@ async function renderUserManager(root, context) {
     } catch (error) { context.toast(error.message, true); }
     finally { submit.disabled = false; }
   };
-  root.querySelector("#studentUserList").closest(".user-group-panel").after(rosterPanel);
+  registration.closest(".panel").after(rosterPanel);
   refreshRoster().catch(() => { rosterList.textContent = "事前登録の一覧を読み込めませんでした。"; });
   root.querySelector("#studentUserList").closest(".user-group-panel").insertAdjacentHTML("beforebegin",
     '<section class="panel user-group-panel"><div class="panel-header"><h2>教職員一覧</h2><span id="staffCount" class="chip"></span></div><div id="staffUserList" class="admin-list"></div></section>');
