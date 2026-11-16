@@ -149,6 +149,11 @@ function editableUnitPayload({ name, range = "", order = 0, ...content }) {
     ...normalizeUnitData(content),
   };
 }
+
+function publicationSnapshot(unit) {
+  return Object.fromEntries(["name", "range", "order", "summary", "important_points", "quiz", "fill_blank"]
+    .filter(key => unit[key] !== undefined).map(key => [key, unit[key]]));
+}
 function questionIndexMap(before = [], after = []) {
   const nextById = new Map(after.map((item, index) => [safeText(item?.id, 80), index]).filter(([id]) => id));
   return before.map((item, oldIndex) => {
@@ -233,6 +238,8 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
     subjectId, unitId: id, name: published.name, actorUid: auth.currentUser.uid,
     actorName: actor.name || "", actorRole: actor.studentNumber === "2510044" ? "owner" : actor.role,
     recordedAt: serverTimestamp(),
+    before: current.publishedAt || current.published ? publicationSnapshot(current) : null,
+    after: publicationSnapshot(published),
   });
   await batch.commit();
   const changed = ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
@@ -252,15 +259,25 @@ export async function requestUnitPublication(subjectId, unitId, input) {
   if (!payload.name || !(payload.quiz.length || payload.fill_blank.length)) {
     throw new Error("単元名と問題を入力してください。");
   }
+  const current = unitId ? await getUnit(subjectId, unitId) : null;
+  const before = current && (current.publishedAt || current.published) ? publicationSnapshot(current) : null;
   await addDoc(collection(db, "studyAppPublicationRequests"), {
     authorUid: auth.currentUser.uid, subjectId, unitId, payload,
+    before,
     status: "pending", createdAt: serverTimestamp(),
   });
 }
 
 export async function listPublicationRequests() {
   const rows = await getDocsFromServer(query(collection(db, "studyAppPublicationRequests"), where("status", "==", "pending")));
-  return rows.docs.map(row => ({ ...row.data(), id: row.id }));
+  return Promise.all(rows.docs.map(async row => {
+    const request = { ...row.data(), id: row.id };
+    if (!Object.hasOwn(request, "before") && request.unitId) {
+      const current = await getUnit(request.subjectId, request.unitId);
+      if (current?.published) request.currentReference = publicationSnapshot(current);
+    }
+    return request;
+  }));
 }
 
 export async function listOwnPublicationRequests() {
@@ -312,9 +329,13 @@ export async function listPublicationHistory() {
   const byRequest = new Map(units.filter(unit => unit.publicationRequestId && !unit.directPublicationId)
     .map(unit => [unit.publicationRequestId, unit]));
   const legacy = units.filter(unit => unit.publishedAt && !unit.directPublicationId && !unit.publicationRequestId)
-    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt }));
+    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt, currentReference: publicationSnapshot(unit) }));
+  const byDirectId = new Map(units.filter(unit => unit.directPublicationId).map(unit => [unit.directPublicationId, unit]));
   const rows = [
-    ...direct.docs.map(row => ({ ...row.data(), status: "direct" })),
+    ...direct.docs.map(row => {
+      const unit = byDirectId.get(row.id);
+      return { ...row.data(), status: "direct", currentReference: unit ? publicationSnapshot(unit) : null };
+    }),
     ...requests.docs.map(row => {
       const data = row.data();
       const unit = byRequest.get(row.id);
@@ -433,6 +454,7 @@ export async function applyQuestionReportCorrection({ reportId, questionIndex, o
       transaction.set(doc(collection(db, "studyAppPublicationRequests")), {
         authorUid: currentUser.uid, subjectId: report.subjectId, unitId: report.unitId,
         payload: editableUnitPayload({ ...unit, [type]: next }),
+        before: publicationSnapshot(unit),
         status: "pending", createdAt: serverTimestamp(),
       });
       return;

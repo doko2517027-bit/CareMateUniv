@@ -33,7 +33,7 @@ import {
   listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=26";
+} from "./store.js?v=27";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -87,13 +87,52 @@ function addOwnPublicationHistory(root) {
     try {
       const requests = await listOwnPublicationRequests();
       list.innerHTML = requests.map(request =>
-        `<article class="admin-row"><div style="overflow-wrap:anywhere"><strong>${escapeHtml(request.payload?.name || "単元")}</strong><p>${escapeHtml(dateText(request.createdAt))}</p></div><span class="chip${request.status === "rejected" ? " danger" : ""}">${labels[request.status] || "確認中"}</span></article>`
+        `<article class="admin-row"><div style="overflow-wrap:anywhere"><strong>${escapeHtml(request.payload?.name || "単元")}</strong><p>${escapeHtml(dateText(request.createdAt))}</p></div><span class="chip${request.status === "rejected" ? " danger" : ""}">${labels[request.status] || "確認中"}</span></article>${publicationDetails(request)}`
       ).join("") || '<p class="empty">公開申請はありません。</p>';
     } catch {
       list.textContent = "申請状況を読み込めませんでした。もう一度お試しください。";
     } finally { refresh.disabled = false; }
   };
   refresh.click();
+}
+
+function publicationDetails(record) {
+  const next = record.after || record.payload;
+  const previous = record.before;
+  const reference = record.currentReference;
+  const line = (label, value) => `<p style="white-space:pre-wrap;overflow-wrap:anywhere"><strong>${label}</strong><br>${escapeHtml(value === "" || value == null ? "—" : value)}</p>`;
+  const text = value => Array.isArray(value) ? value.join("\n") : value;
+  const fields = [["name", "単元名"], ["range", "試験範囲"], ["order", "表示順"], ["summary", "要約"], ["important_points", "重要ポイント"]];
+  const question = item => {
+    if (!item) return "—";
+    const answer = Array.isArray(item.choices)
+      ? (item.answers || [item.answer]).map(index => item.choices[index]).join(" / ")
+      : text(item.answers || item.answer);
+    return [item.question, item.choices?.length ? `選択肢：${item.choices.join(" / ")}` : "", `正解：${answer || "—"}`,
+      item.explanation && `解説：${item.explanation}`, item.source && `出典：${item.source}`,
+      item.imageDescription && `画像の説明：${item.imageDescription}`, item.imageUrl && `画像：${item.imageUrl}`].filter(Boolean).join("\n");
+  };
+  const blocks = [];
+  const add = (label, before, after) => {
+    if (previous && before === after) return;
+    if (!previous && (after === "" || after == null)) return;
+    blocks.push(`<article class="card"><h4>${label}</h4>${previous ? line("変更前", before) : ""}${line(previous ? "変更後" : "内容", after)}</article>`);
+  };
+  const displayed = next || reference;
+  if (displayed) {
+    fields.forEach(([key, label]) => add(label, text(previous?.[key]), text(displayed[key])));
+    for (const [key, label] of [["fill_blank", "穴埋め"], ["quiz", "選択問題"]]) {
+      const before = Array.isArray(previous?.[key]) ? previous[key] : [];
+      const after = Array.isArray(displayed[key]) ? displayed[key] : [];
+      for (let i = 0; i < Math.max(before.length, after.length); i++) {
+        add(`${label} ${i + 1}`, before[i] ? question(before[i]) : "", after[i] ? question(after[i]) : "");
+      }
+    }
+  }
+  const note = !next && reference ? "現在保存されている内容です。当時の変更前後は記録されていません。"
+    : !next ? "当時の内容は記録されていません。"
+    : !Object.hasOwn(record, "before") && (record.unitId || record.status === "direct") ? "変更前の内容は記録されていません。" : "";
+  return `<details><summary>${previous ? "変更前 → 変更後" : next && !note ? "追加内容を見る" : "保存されている内容を見る"}</summary><div class="form-stack">${note ? `<p class="hint">${note}</p>` : ""}${blocks.join("") || (previous ? '<p class="hint">表示対象の変更はありません。</p>' : "")}</div></details>`;
 }
 
 async function renderPublicationQueue(root, context) {
@@ -120,7 +159,7 @@ async function renderPublicationQueue(root, context) {
         const actor = row.actorName || userNames.get(row.actorUid) || "記録なし";
         const role = roles[row.actorRole] || "当時の権限は記録なし";
         const applicant = row.authorUid ? `<p>申請者：${escapeHtml(userNames.get(row.authorUid) || "記録なし")}</p>` : "";
-        return `<article class="card"><span class="chip${row.status === "rejected" ? " danger" : ""}">${labels[row.status]}</span><h3 style="overflow-wrap:anywhere">${escapeHtml(row.name || "単元")}</h3><p>${escapeHtml(subjectNames.get(row.subjectId) || "科目名の記録なし")}</p><p>担当：${escapeHtml(actor)}（${escapeHtml(role)}）</p>${applicant}<p>${row.recordedAt ? escapeHtml(dateText(row.recordedAt)) : "処理日時の記録なし"}</p></article>`;
+        return `<article class="card"><span class="chip${row.status === "rejected" ? " danger" : ""}">${labels[row.status]}</span><h3 style="overflow-wrap:anywhere">${escapeHtml(row.name || "単元")}</h3><p>${escapeHtml(subjectNames.get(row.subjectId) || "科目名の記録なし")}</p><p>担当：${escapeHtml(actor)}（${escapeHtml(role)}）</p>${applicant}<p>${row.recordedAt ? escapeHtml(dateText(row.recordedAt)) : "処理日時の記録なし"}</p>${publicationDetails(row)}</article>`;
       }).join("") || '<p class="empty">履歴はありません。</p>';
     } catch {
       delete history.dataset.loaded;
@@ -131,13 +170,7 @@ async function renderPublicationQueue(root, context) {
   for (const request of rows) {
     const panel = document.createElement("section");
     panel.className = "panel form-stack";
-    const questions = [...(request.payload.quiz || []), ...(request.payload.fill_blank || [])];
-    const line = (label, value) => value ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere"><strong>${label}</strong><br>${escapeHtml(value)}</p>` : "";
-    const content = questions.map((item, index) => {
-      const answer = item.choices ? (item.answers || [item.answer]).map(choice => item.choices[choice]).join(" / ") : item.answer;
-      return `<article class="card">${line(`問題 ${index + 1}`, item.question)}${line("選択肢", item.choices?.join("\n"))}${line("正解", answer)}${line("解説", item.explanation)}${line("出典", item.source)}</article>`;
-    }).join("");
-    panel.innerHTML = `<h2 style="overflow-wrap:anywhere">${escapeHtml(request.payload.name)}</h2><p>${questions.length}問</p><details><summary>公開される内容を見る</summary><div class="form-stack">${line("試験範囲", request.payload.range)}${line("要約", request.payload.summary?.join("\n"))}${line("重要ポイント", request.payload.important_points?.join("\n"))}${content}</div></details>`;
+    panel.innerHTML = `<h2 style="overflow-wrap:anywhere">${escapeHtml(request.payload.name)}</h2>${publicationDetails(request)}`;
     if (request.authorUid === auth.currentUser.uid && context.profile.studentNumber !== "2510044") panel.insertAdjacentHTML("beforeend", "<p>別の管理者の審査を待っています。</p>");
     else for (const [label, approved] of [["承認して公開", true], ["差し戻す", false]]) {
       const button = document.createElement("button");
