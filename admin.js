@@ -103,15 +103,6 @@ function publicationDetails(record) {
   const line = (label, value) => `<p style="white-space:pre-wrap;overflow-wrap:anywhere"><strong>${label}</strong><br>${escapeHtml(value === "" || value == null ? "—" : value)}</p>`;
   const text = value => Array.isArray(value) ? value.join("\n") : value;
   const fields = [["name", "単元名"], ["range", "試験範囲"], ["order", "表示順"], ["summary", "要約"], ["important_points", "重要ポイント"]];
-  const question = item => {
-    if (!item) return "—";
-    const answer = Array.isArray(item.choices)
-      ? (item.answers || [item.answer]).map(index => item.choices[index]).join(" / ")
-      : text(item.answers || item.answer);
-    return [item.question, item.choices?.length ? `選択肢：${item.choices.join(" / ")}` : "", `正解：${answer || "—"}`,
-      item.explanation && `解説：${item.explanation}`, item.source && `出典：${item.source}`,
-      item.imageDescription && `画像の説明：${item.imageDescription}`, item.imageUrl && `画像：${item.imageUrl}`].filter(Boolean).join("\n");
-  };
   const blocks = [];
   const add = (label, before, after) => {
     if (previous && before === after) return;
@@ -124,9 +115,38 @@ function publicationDetails(record) {
     for (const [key, label] of [["fill_blank", "穴埋め"], ["quiz", "選択問題"]]) {
       const before = Array.isArray(previous?.[key]) ? previous[key] : [];
       const after = Array.isArray(displayed[key]) ? displayed[key] : [];
-      for (let i = 0; i < Math.max(before.length, after.length); i++) {
-        add(`${label} ${i + 1}`, before[i] ? question(before[i]) : "", after[i] ? question(after[i]) : "");
+      const indices = new Map(before.flatMap((item, i) => item?.id ? [[item.id, i]] : []));
+      const used = new Set();
+      function compare(oldQuestion, newQuestion, title) {
+        const first = blocks.length;
+        for (const [field, name] of [["question", "問題文"], ["explanation", "解説"], ["source", "出典"], ["imageUrl", "画像"], ["imageDescription", "画像の説明"]]) {
+          add(name, oldQuestion?.[field] || "", newQuestion?.[field] || "");
+        }
+        const oldChoices = oldQuestion?.choices || [];
+        const newChoices = newQuestion?.choices || [];
+        for (let i = 0; i < Math.max(oldChoices.length, newChoices.length); i++) {
+          add(`選択肢 ${i + 1}`, oldChoices[i] || "", newChoices[i] || "");
+        }
+        const answers = item => {
+          if (!item) return "";
+          if (key === "quiz") return (item.answers || [item.answer]).filter(Number.isInteger).sort((a, b) => a - b).map(index => `選択肢 ${index + 1}`).join(" / ");
+          return text(item.answers || item.answer) || "";
+        };
+        add("正解", answers(oldQuestion), answers(newQuestion));
+        if (blocks.length > first) {
+          const items = blocks.splice(first).join("");
+          blocks.push(`<section class="panel form-stack"><h3>${title}</h3>${items}</section>`);
+        }
       }
+      after.forEach((item, i) => {
+        const match = (item?.id ? indices.get(item.id) : undefined)
+          ?? (before[i] && (!item?.id || !before[i].id) && !used.has(i) ? i : undefined);
+        if (match !== undefined) used.add(match);
+        compare(before[match], item, `${label} ${i + 1}${previous && match === undefined ? "（追加）" : ""}`);
+      });
+      before.forEach((item, i) => {
+        if (!used.has(i)) compare(item, null, `${label} ${i + 1}（削除）`);
+      });
     }
   }
   const note = !next && reference ? "現在保存されている内容です。当時の変更前後は記録されていません。"
