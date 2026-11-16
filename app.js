@@ -291,6 +291,32 @@ async function uploadQuestionImage(file, editor, context) {
   context.toast("画像を追加しました。");
 }
 
+function addQuestionEditorHelp(form, inDialog) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `question-editor-help primary-button${inDialog ? " in-dialog" : ""}`;
+  button.textContent = "？";
+  button.setAttribute("aria-label", "問題の入力方法");
+  button.setAttribute("aria-haspopup", "dialog");
+  const help = document.createElement("dialog");
+  help.className = "app-dialog";
+  help.setAttribute("aria-labelledby", "questionEditorHelpTitle");
+  help.innerHTML = `<div class="form-stack">
+    <h2 id="questionEditorHelpTitle">問題の入力方法</h2>
+    <ol class="content-list">
+      <li><strong>単元情報</strong><br>単元名を入力します。必要に応じて、試験範囲・要約・重要ポイントを入力してください。</li>
+      <li><strong>穴埋め問題</strong><br>問題文の空欄を「（　）」などで示し、解答欄に正解を入力します。空欄が複数ある場合は、問題文に出てくる順番で解答欄を追加します。</li>
+      <li><strong>選択問題</strong><br>問題文と選択肢を2つ以上入力し、正しい選択肢の「正解」にチェックを入れます。正解が複数なら、すべてにチェックを入れます。</li>
+      <li><strong>解説・出典・画像</strong><br>解説には正解の理由を書きます。出典・ソースは各問題に必須です。資料名、ページ番号、URLなどを入力してください。画像と画像の説明は必要に応じて追加できます。</li>
+      <li><strong>保存・公開</strong><br>画面下のボタンで編集内容を保存、公開、または公開申請します。</li>
+    </ol>
+  </div><button class="secondary-button" type="button" autofocus>閉じる</button>`;
+  button.onclick = () => help.showModal();
+  help.querySelector("button").onclick = () => help.close();
+  help.addEventListener("close", () => { if (button.isConnected) button.focus({ preventScroll: true }); });
+  form.append(button, help);
+}
+
 function unitEditor(unit = {}, context, target = null) {
   return new Promise((resolve) => {
     const saveAction = unit.published ? "publish" : "save";
@@ -304,6 +330,7 @@ function unitEditor(unit = {}, context, target = null) {
     if (target) host.innerHTML = editorHtml;
     else dialog = openDialog(editorHtml);
     const form = $("#unitEditorForm", host);
+    addQuestionEditorHelp(form, Boolean(dialog));
     const fillList = $("#fillQuestionList");
     const quizList = $("#quizQuestionList");
     let submitAction = saveAction;
