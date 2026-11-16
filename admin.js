@@ -33,7 +33,7 @@ import {
   listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=27";
+} from "./store.js?v=28";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -99,7 +99,11 @@ function addOwnPublicationHistory(root) {
 function publicationDetails(record) {
   const next = record.after || record.payload;
   const previous = record.before;
-  const reference = record.currentReference;
+  const knownAddition = (Object.hasOwn(record, "before") && previous === null)
+    || (record.payload && record.unitId === "");
+  if (!next || (!previous && !knownAddition)) {
+    return '<p class="hint">当時の変更前後を確認できる記録がないため、差分を表示できません。</p>';
+  }
   const line = (label, value) => `<p style="white-space:pre-wrap;overflow-wrap:anywhere"><strong>${label}</strong><br>${escapeHtml(value === "" || value == null ? "—" : value)}</p>`;
   const text = value => Array.isArray(value) ? value.join("\n") : value;
   const fields = [["name", "単元名"], ["range", "試験範囲"], ["order", "表示順"], ["summary", "要約"], ["important_points", "重要ポイント"]];
@@ -109,7 +113,7 @@ function publicationDetails(record) {
     if (!previous && (after === "" || after == null)) return;
     blocks.push(`<article class="card"><h4>${label}</h4>${previous ? line("変更前", before) : ""}${line(previous ? "変更後" : "内容", after)}</article>`);
   };
-  const displayed = next || reference;
+  const displayed = next;
   if (displayed) {
     fields.forEach(([key, label]) => add(label, text(previous?.[key]), text(displayed[key])));
     for (const [key, label] of [["fill_blank", "穴埋め"], ["quiz", "選択問題"]]) {
@@ -149,10 +153,7 @@ function publicationDetails(record) {
       });
     }
   }
-  const note = !next && reference ? "現在保存されている内容です。当時の変更前後は記録されていません。"
-    : !next ? "当時の内容は記録されていません。"
-    : !Object.hasOwn(record, "before") && (record.unitId || record.status === "direct") ? "変更前の内容は記録されていません。" : "";
-  return `<details><summary>${previous ? "変更前 → 変更後" : next && !note ? "追加内容を見る" : "保存されている内容を見る"}</summary><div class="form-stack">${note ? `<p class="hint">${note}</p>` : ""}${blocks.join("") || (previous ? '<p class="hint">表示対象の変更はありません。</p>' : "")}</div></details>`;
+  return `<details><summary>${previous ? "変更前 → 変更後" : "追加内容を見る"}</summary><div class="form-stack">${blocks.join("") || '<p class="hint">表示対象の変更はありません。</p>'}</div></details>`;
 }
 
 async function renderPublicationQueue(root, context) {

@@ -270,14 +270,7 @@ export async function requestUnitPublication(subjectId, unitId, input) {
 
 export async function listPublicationRequests() {
   const rows = await getDocsFromServer(query(collection(db, "studyAppPublicationRequests"), where("status", "==", "pending")));
-  return Promise.all(rows.docs.map(async row => {
-    const request = { ...row.data(), id: row.id };
-    if (!Object.hasOwn(request, "before") && request.unitId) {
-      const current = await getUnit(request.subjectId, request.unitId);
-      if (current?.published) request.currentReference = publicationSnapshot(current);
-    }
-    return request;
-  }));
+  return rows.docs.map(row => ({ ...row.data(), id: row.id }));
 }
 
 export async function listOwnPublicationRequests() {
@@ -329,13 +322,9 @@ export async function listPublicationHistory() {
   const byRequest = new Map(units.filter(unit => unit.publicationRequestId && !unit.directPublicationId)
     .map(unit => [unit.publicationRequestId, unit]));
   const legacy = units.filter(unit => unit.publishedAt && !unit.directPublicationId && !unit.publicationRequestId)
-    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt, currentReference: publicationSnapshot(unit) }));
-  const byDirectId = new Map(units.filter(unit => unit.directPublicationId).map(unit => [unit.directPublicationId, unit]));
+    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt }));
   const rows = [
-    ...direct.docs.map(row => {
-      const unit = byDirectId.get(row.id);
-      return { ...row.data(), status: "direct", currentReference: unit ? publicationSnapshot(unit) : null };
-    }),
+    ...direct.docs.map(row => ({ ...row.data(), status: "direct" })),
     ...requests.docs.map(row => {
       const data = row.data();
       const unit = byRequest.get(row.id);
