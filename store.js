@@ -321,8 +321,6 @@ export async function listPublicationHistory() {
   ))).flat();
   const byRequest = new Map(units.filter(unit => unit.publicationRequestId && !unit.directPublicationId)
     .map(unit => [unit.publicationRequestId, unit]));
-  const legacy = units.filter(unit => unit.publishedAt && !unit.directPublicationId && !unit.publicationRequestId)
-    .map(unit => ({ status: "legacy", name: unit.name, subjectId: unit.subjectId, actorUid: unit.publishedBy, recordedAt: unit.publishedAt }));
   const rows = [
     ...direct.docs.map(row => ({ ...row.data(), status: "direct" })),
     ...requests.docs.map(row => {
@@ -331,7 +329,6 @@ export async function listPublicationHistory() {
       return { ...data, name: data.payload?.name, actorUid: data.reviewedBy || unit?.publishedBy, actorName: data.reviewerName,
         actorRole: data.reviewerRole, recordedAt: data.reviewedAt || unit?.publishedAt };
     }),
-    ...legacy,
   ];
   return { subjects, rows: rows.sort((a, b) =>
     (b.recordedAt?.toMillis() || b.createdAt?.toMillis() || 0) - (a.recordedAt?.toMillis() || a.createdAt?.toMillis() || 0)) };
