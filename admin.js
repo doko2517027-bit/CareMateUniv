@@ -60,6 +60,12 @@ async function renderAuthorTests(root, context) {
   const button = root.querySelector("#authorCreate");
   button.disabled = true;
   addOwnPublicationHistory(root);
+  const reportsButton = document.createElement("button");
+  reportsButton.type = "button";
+  reportsButton.className = "secondary-button";
+  reportsButton.textContent = "問題の修正依頼を見る";
+  button.after(reportsButton);
+  reportsButton.onclick = () => renderAuthorReports(root, context);
   const subjects = await listSubjects({ publishedOnly: true });
   for (const subject of subjects) select.add(new Option(subject.name, subject.id));
   button.disabled = !subjects.length;
@@ -73,6 +79,17 @@ async function renderAuthorTests(root, context) {
       await renderAuthorTests(root, context);
     } catch (error) { context.toast(error.message, true); }
   };
+}
+
+async function renderAuthorReports(root, context) {
+  root.innerHTML = `${adminHeader("問題の修正依頼", "公開中の問題に届いた修正依頼を確認できます。")}<section class="panel admin-list" aria-live="polite">読み込み中…</section>`;
+  bindAdminBack(root, () => renderAuthorTests(root, context));
+  const list = root.querySelector(".admin-list");
+  try {
+    const { reports } = await callProtectedApi("listStudyAuthorReports", {});
+    list.innerHTML = reports.map(row => `<article class="card"><span class="chip">${row.status === "resolved" ? "修正済み" : "未対応"}</span><h3>${escapeHtml(row.subject)} / ${escapeHtml(row.unit)}</h3><p>${escapeHtml(row.question)}</p><p>${escapeHtml(row.reason)}</p></article>`).join("")
+      || '<p class="empty">表示できる修正依頼はありません。</p>';
+  } catch (error) { list.textContent = error.message || "修正依頼を読み込めませんでした。"; }
 }
 
 function addOwnPublicationHistory(root) {
