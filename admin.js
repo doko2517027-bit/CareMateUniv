@@ -149,7 +149,12 @@ async function renderUserManager(root, context) {
     return `<article class="admin-row user-account-row"><div><strong>${escapeHtml(user.name || "名前未設定")}（${escapeHtml(user.studentNumber)}）</strong><p>${identity} / ${user.active === false ? "利用停止" : "利用中"}</p></div><div class="inline-actions">${canReset ? `<button class="secondary-button" data-reset-user="${escapeHtml(user.id)}" type="button">仮パスワード設定</button>` : ""}${isPrimary ? `<span class="chip">権限固定</span>` : `<button class="${user.active === false ? "primary-button" : "secondary-button"}" data-active="${escapeHtml(user.id)}" type="button">${user.active === false ? "利用再開" : "利用停止"}</button>${isPrimaryAdmin ? `<button class="danger-button" data-delete-user="${escapeHtml(user.id)}" type="button">登録削除</button>` : ""}`}</div></article>`;
   };
   const administrators = data.users.filter((user) => user.role === "admin");
-  const students = data.users.filter((user) => user.role !== "admin");
+  const staff = data.users.filter((user) => user.role === "staff");
+  const students = data.users.filter((user) => !["admin", "staff"].includes(user.role));
+  root.querySelector("#studentUserList").closest(".user-group-panel").insertAdjacentHTML("beforebegin",
+    '<section class="panel user-group-panel"><div class="panel-header"><h2>教職員一覧</h2><span id="staffCount" class="chip"></span></div><div id="staffUserList" class="admin-list"></div></section>');
+  root.querySelector("#staffCount").textContent = `${staff.length}人`;
+  root.querySelector("#staffUserList").innerHTML = staff.length ? staff.map(userRow).join("") : '<div class="empty">教職員はいません。</div>';
   root.querySelector("#adminCount").textContent = `${administrators.length}人`;
   root.querySelector("#studentCount").textContent = `${students.length}人`;
   root.querySelector("#adminUserList").innerHTML = administrators.length ? administrators.map(userRow).join("") : `<div class="empty">管理者はいません。</div>`;
