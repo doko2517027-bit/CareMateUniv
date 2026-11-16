@@ -15,12 +15,14 @@ import {
   signInWithCustomToken,
   signOut,
   updatePassword,
+  verifyBeforeUpdateEmail,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 import {
   doc,
   getDoc,
   runTransaction,
   serverTimestamp,
+  updateDoc,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { clearStoredSession } from "./session.js?v=1";
 
@@ -189,6 +191,19 @@ export async function refreshVerification() {
   if (!auth.currentUser) return null;
   await reload(auth.currentUser);
   return auth.currentUser;
+}
+
+export async function linkUniversityEmail(studentNumber) {
+  const user = auth.currentUser;
+  const email = `${cleanStudentNumber(studentNumber)}@sums.ac.jp`;
+  await reload(user);
+  if (user.email !== email || !user.emailVerified) {
+    await verifyBeforeUpdateEmail(user, email);
+    return false;
+  }
+  await user.getIdToken(true);
+  await updateDoc(doc(db, PROFILE_COLLECTION, user.uid), { universityEmailConfirmed: true });
+  return true;
 }
 
 export async function getCurrentProfile() {

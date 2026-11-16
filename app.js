@@ -10,15 +10,16 @@ import {
   finishAdminRegistration,
   getCurrentProfile,
   loginAccount,
+  linkUniversityEmail,
   prepareLoginConnection,
   logout,
   requestPasswordReset,
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=14";
+} from "./auth.js?v=15";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=15";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=19";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=20";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { uploadStudyFile } from "./upload.js?v=1";
@@ -518,6 +519,19 @@ async function renderSettings(root) {
   const accountLine = ["admin", "staff"].includes(profile.role) ? profile.studentNumber : `${profile.studentNumber} / ${profile.email}`;
   root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : ["admin", "staff"].includes(profile.role) ? (profile.role === "staff" ? "教職員" : "管理者") : profile.role === "author" ? "問題作成者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>ログイン保護</h2><p>共有端末や置き忘れから学習情報を守ります。</p></div><span class="chip">自動</span></div><div class="security-summary"><p><strong>操作がない場合</strong><span>${sessionDurationText(SESSION_IDLE_MS)}で自動ログアウト</span></p><p><strong>連続ログイン</strong><span>最長${sessionDurationText(SESSION_ABSOLUTE_MS)}</span></p></div><p class="hint">期限が切れた後は、学籍番号とパスワードでもう一度ログインしてください。</p></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
   $("#passwordForm", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const output = $("#passwordStatus", root); if (form.get("nextPassword") !== form.get("confirmPassword")) { status(output, "新しいパスワードが一致しません。", true); return; } try { loading(true, "パスワードを変更中…"); await changeOwnPassword(form.get("currentPassword"), form.get("nextPassword")); event.currentTarget.reset(); status(output, "パスワードを変更しました。"); } catch (error) { status(output, authErrorMessage(error), true); } finally { loading(false); } });
+  if (profile.inviteCode && !profile.universityEmailConfirmed && profile.studentNumber !== "2510044") {
+    root.insertAdjacentHTML("beforeend", '<section class="panel form-stack"><h2>大学メールの確認</h2><p>学生の役職に変更する前に、大学メールへ届くリンクを開き、もう一度このボタンを押してください。</p><button id="linkUniversityEmail" class="secondary-button">大学メールを確認</button><p id="universityEmailStatus" role="status"></p></section>');
+    const button = $("#linkUniversityEmail", root);
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const linked = await linkUniversityEmail(profile.studentNumber);
+        if (linked) profile.universityEmailConfirmed = true;
+        status($("#universityEmailStatus", root), linked ? "大学メールの確認が完了しました。管理者が学生に変更できます。" : "確認メールを送信しました。");
+      } catch (error) { status($("#universityEmailStatus", root), authErrorMessage(error), true); }
+      finally { button.disabled = false; }
+    };
+  }
   $("#logoutButton", root).addEventListener("click", async () => { if (await confirmDialog("ログアウトしますか？")) { loading(true, "ログアウト中…"); await logout(); location.reload(); } });
 }
 

@@ -167,8 +167,10 @@ async function renderUserManager(root, context) {
     roles.className = "field";
     roles.setAttribute("aria-label", `${user.name}の権限`);
     for (const [value, label] of [["student", "学生"], ["author", "問題作成者"], ["admin", "管理者"], ["staff", "教職員"]]) {
-      if (value === "student" && user.inviteCode) continue;
-      roles.add(new Option(label, value));
+      const needsVerification = value === "student" && user.inviteCode && !user.universityEmailConfirmed;
+      const option = new Option(needsVerification ? "学生（大学メール確認後）" : label, value);
+      option.disabled = Boolean(needsVerification);
+      roles.add(option);
     }
     roles.value = user.role;
     roles.onchange = async () => {
