@@ -25,12 +25,13 @@ import {
   publishUnitDraft,
   setUnitPublication,
   updateUserAccess,
+  updateStudyUserName,
   updateQuestionReportStatus,
   requestUnitPublication,
   listPublicationRequests,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=21";
+} from "./store.js?v=22";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -186,6 +187,27 @@ async function renderUserManager(root, context) {
   root.querySelector("#adminUserList").innerHTML = administrators.length ? administrators.map(userRow).join("") : `<div class="empty">管理者はいません。</div>`;
   root.querySelector("#studentUserList").innerHTML = students.length ? students.map(userRow).join("") : `<div class="empty">学生はいません。</div>`;
   const inviteList = root.querySelector("#inviteList");
+  for (const [index, row] of [...root.querySelectorAll("#adminUserList .user-account-row, #staffUserList .user-account-row, #studentUserList .user-account-row")].entries()) {
+    const user = [...administrators, ...staff, ...students][index];
+    if (user.studentNumber === "2510044" && user.id !== auth.currentUser.uid) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary-button";
+    button.textContent = "名前を変更";
+    button.onclick = async () => {
+      const result = await context.form("名前を変更", [
+        { name: "name", label: "名前", value: user.name || "", required: true },
+      ]);
+      if (!result) return;
+      try {
+        await updateStudyUserName(user.id, result.name);
+        if (user.id === auth.currentUser.uid) context.profile.name = result.name.trim();
+        context.toast("名前を変更しました。");
+        await renderUserManager(root, context);
+      } catch (error) { context.toast(error.message, true); }
+    };
+    row.querySelector(".inline-actions").append(button);
+  }
   for (const user of data.users.filter(item => item.studentNumber !== "2510044")) {
     const row = [...root.querySelectorAll("[data-active]")].find(button => button.dataset.active === user.id)?.parentElement;
     if (!row) continue;

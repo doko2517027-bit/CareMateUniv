@@ -538,6 +538,12 @@ export async function updateUserAccess(uid, patch) {
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
 }
 
+export async function updateStudyUserName(uid, value) {
+  const name = String(value ?? "").trim();
+  if (!name || name.length > 80) throw new Error("名前は1〜80文字で入力してください。");
+  await updateDoc(doc(db, COLLECTIONS.users, uid), { name, updatedAt: serverTimestamp() });
+}
+
 export async function deleteStudyUser(uid) {
   const current = auth.currentUser;
   if (!current) throw new Error("ログインしてください。");
