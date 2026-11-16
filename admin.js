@@ -26,6 +26,7 @@ import {
   setUnitPublication,
   updateUserAccess,
   updateStudyUserName,
+  callProtectedApi,
   listStudentRoster,
   addStudentToRoster,
   removeStudentFromRoster,
@@ -156,14 +157,54 @@ function renderAdminMenu(root, context) {
 
 async function renderUserManager(root, context) {
   const isPrimaryAdmin = context.profile?.studentNumber === "2510044";
-  root.innerHTML = `${adminHeader("ユーザー管理", "管理者と学生を分けて表示", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>新しい管理者を登録</h2><p>対象者の学籍番号と氏名だけを登録します。発行コードは一度だけ使用できます。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">管理者登録コードを発行</button></form></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>管理者一覧</h2><p>主管理者2510044の権限は固定されています。</p></div><span id="adminCount" class="chip">—</span></div><div id="adminUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>学生一覧</h2><p>${isPrimaryAdmin ? "主管理者は学生の登録削除もできます。" : "利用停止・再開と仮パスワード設定ができます。"}</p></div><span id="studentCount" class="chip">—</span></div><div id="studentUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の管理者登録コード</h2><p>コードは対象者へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
+  root.innerHTML = `${adminHeader("ユーザー管理", "管理者と学生を分けて表示", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>新しいユーザーを登録</h2><p>学籍番号と氏名を入力し、登録する役割を選択してください。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">管理者登録コードを発行</button></form></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>管理者一覧</h2><p>主管理者2510044の権限は固定されています。</p></div><span id="adminCount" class="chip">—</span></div><div id="adminUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>学生一覧</h2><p>${isPrimaryAdmin ? "主管理者は学生の登録削除もできます。" : "利用停止・再開と仮パスワード設定ができます。"}</p></div><span id="studentCount" class="chip">—</span></div><div id="studentUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の管理者登録コード</h2><p>コードは対象者へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
-  root.querySelector("#inviteForm")?.insertAdjacentHTML("afterbegin", '<label>登録する権限<select name="role"><option value="author">問題作成者</option><option value="admin">管理者</option><option value="staff">教職員</option></select></label>');
+  const registration = root.querySelector("#inviteForm");
+  registration.insertAdjacentHTML("afterbegin", '<label>登録する役割<select name="role"><option value="student">学生</option><option value="author">問題作成者</option><option value="admin">管理者</option><option value="staff">教職員</option></select></label>');
+  const roleField = registration.elements.role;
+  const submitRegistration = registration.querySelector('[type="submit"]');
+  const checkRegistration = document.createElement("button");
+  checkRegistration.type = "button";
+  checkRegistration.className = "secondary-button";
+  checkRegistration.textContent = "メール認証を確認して登録を完了";
+  registration.append(checkRegistration);
+  const roleNames = { admin: "管理者", staff: "教職員", student: "学生", author: "問題作成者" };
+  const usesEmail = () => ["student", "author"].includes(roleField.value);
+  const updateRegistrationLabel = () => {
+    submitRegistration.textContent = usesEmail() ? "認証メールを送信" : `${roleNames[roleField.value]}登録コードを発行`;
+    checkRegistration.hidden = !usesEmail();
+  };
+  roleField.onchange = updateRegistrationLabel;
+  updateRegistrationLabel();
+  checkRegistration.onclick = async () => {
+    const studentNumber = registration.elements.studentNumber.value.trim();
+    if (!/^\d{7}$/.test(studentNumber)) { context.toast("学籍番号を7桁で入力してください。", true); return; }
+    checkRegistration.disabled = true;
+    try {
+      const result = await callProtectedApi("manageStudyEmailRegistration", { action: "status", studentNumber });
+      if (!result.verified) { context.toast("大学メールの認証を確認できていません。", true); return; }
+      const data = await context.form("初期パスワードを設定", [
+        { name: "password", label: "新規パスワード", type: "password", required: true },
+        { name: "passwordConfirm", label: "再度パスワードを入力", type: "password", required: true },
+      ], "登録を完了");
+      if (!data) return;
+      await callProtectedApi("manageStudyEmailRegistration", { action: "finish", studentNumber, ...data });
+      context.toast("ユーザー登録が完了しました。");
+      await renderUserManager(root, context);
+    } catch (error) { context.toast(error.message, true); }
+    finally { checkRegistration.disabled = false; }
+  };
   root.querySelector("#inviteForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     try {
+      if (usesEmail()) {
+        context.loading(true, "認証メールを送信中…");
+        await callProtectedApi("manageStudyEmailRegistration", { action: "send", ...Object.fromEntries(form) });
+        context.toast("認証メールを送信しました。本人の確認後に登録を完了してください。");
+        return;
+      }
       context.loading(true, "登録コードを発行中…");
       const code = await createAdminInvite(Object.fromEntries(form));
       await context.show(`<h2>管理者登録コード</h2><p>対象者：${escapeHtml(form.get("studentNumber"))}</p><div class="code-box">${escapeHtml(code)}</div><p class="hint">1回だけ使用できます。新規登録画面ではメールアドレスを空欄にし、このコードをパスワード欄と再入力欄へ入力します。</p>`);
