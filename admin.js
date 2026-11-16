@@ -31,7 +31,7 @@ import {
   listPublicationRequests,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=22";
+} from "./store.js?v=23";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -215,15 +215,18 @@ async function renderUserManager(root, context) {
     roles.className = "field";
     roles.setAttribute("aria-label", `${user.name}の権限`);
     for (const [value, label] of [["student", "学生"], ["author", "問題作成者"], ["admin", "管理者"], ["staff", "教職員"]]) {
-      const needsVerification = value === "student" && user.inviteCode && !user.universityEmailConfirmed;
-      const option = new Option(needsVerification ? "学生（大学メール確認後）" : label, value);
-      option.disabled = Boolean(needsVerification);
-      roles.add(option);
+      roles.add(new Option(label, value));
     }
     roles.value = user.role;
     roles.onchange = async () => {
       if (!await context.confirm(`${user.name}の権限を${roles.selectedOptions[0].text}に変更しますか？`)) { roles.value = user.role; return; }
-      try { await updateUserAccess(user.id, { role: roles.value }); await renderUserManager(root, context); }
+      try {
+        await updateUserAccess(user.id, {
+          role: roles.value,
+          invitedStudent: roles.value === "student" && Boolean(user.inviteCode),
+        });
+        await renderUserManager(root, context);
+      }
       catch (error) { roles.value = user.role; context.toast(error.message, true); }
     };
     row.append(roles);

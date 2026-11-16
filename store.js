@@ -535,6 +535,7 @@ export async function updateUserAccess(uid, patch) {
   const allowed = {};
   if (typeof patch.active === "boolean") allowed.active = patch.active;
   if (["student", "author", "staff", "admin"].includes(patch.role)) allowed.role = patch.role;
+  if (typeof patch.invitedStudent === "boolean") allowed.invitedStudent = patch.invitedStudent;
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
 }
 
