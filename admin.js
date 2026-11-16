@@ -28,8 +28,9 @@ import {
   updateQuestionReportStatus,
   requestUnitPublication,
   listPublicationRequests,
+  listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=20";
+} from "./store.js?v=21";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -54,6 +55,7 @@ async function renderAuthorTests(root, context) {
   const select = root.querySelector("#authorSubject");
   const button = root.querySelector("#authorCreate");
   button.disabled = true;
+  addOwnPublicationHistory(root);
   const subjects = await listSubjects({ publishedOnly: true });
   for (const subject of subjects) select.add(new Option(subject.name, subject.id));
   button.disabled = !subjects.length;
@@ -64,14 +66,38 @@ async function renderAuthorTests(root, context) {
       if (!result) return;
       await requestUnitPublication(subjectId, "", result);
       context.toast("公開申請を送信しました。");
+      await renderAuthorTests(root, context);
     } catch (error) { context.toast(error.message, true); }
   };
+}
+
+function addOwnPublicationHistory(root) {
+  const panel = document.createElement("section");
+  panel.className = "panel form-stack";
+  panel.innerHTML = '<h2>自分の公開申請</h2><button class="secondary-button" type="button">最新の状況を確認</button><div class="admin-list" aria-live="polite"></div>';
+  root.append(panel);
+  const refresh = panel.querySelector("button");
+  const list = panel.querySelector(".admin-list");
+  const labels = { pending: "審査待ち", approved: "公開済み", rejected: "差し戻し" };
+  refresh.onclick = async () => {
+    refresh.disabled = true;
+    try {
+      const requests = await listOwnPublicationRequests();
+      list.innerHTML = requests.map(request =>
+        `<article class="admin-row"><div style="overflow-wrap:anywhere"><strong>${escapeHtml(request.payload?.name || "単元")}</strong><p>${escapeHtml(dateText(request.createdAt))}</p></div><span class="chip${request.status === "rejected" ? " danger" : ""}">${labels[request.status] || "確認中"}</span></article>`
+      ).join("") || '<p class="empty">公開申請はありません。</p>';
+    } catch {
+      list.textContent = "申請状況を読み込めませんでした。もう一度お試しください。";
+    } finally { refresh.disabled = false; }
+  };
+  refresh.click();
 }
 
 async function renderPublicationQueue(root, context) {
   root.innerHTML = adminHeader("公開申請", "内容を確認して公開を承認します。");
   bindAdminBack(root, () => renderAdminMenu(root, context));
   const rows = await listPublicationRequests();
+  addOwnPublicationHistory(root);
   if (!rows.length) root.insertAdjacentHTML("beforeend", '<p class="empty">未審査の申請はありません。</p>');
   for (const request of rows) {
     const panel = document.createElement("section");

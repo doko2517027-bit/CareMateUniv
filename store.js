@@ -252,6 +252,15 @@ export async function listPublicationRequests() {
   return rows.docs.map(row => ({ ...row.data(), id: row.id }));
 }
 
+export async function listOwnPublicationRequests() {
+  const rows = await getDocsFromServer(query(
+    collection(db, "studyAppPublicationRequests"),
+    where("authorUid", "==", auth.currentUser.uid),
+  ));
+  return rows.docs.map(row => row.data())
+    .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+}
+
 export async function reviewPublication(request, approved) {
   const ref = doc(db, "studyAppPublicationRequests", request.id);
   await runTransaction(db, async transaction => {
