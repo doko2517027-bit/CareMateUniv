@@ -16,9 +16,9 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=13";
+} from "./auth.js?v=14";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=15";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=17";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=18";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { uploadStudyFile } from "./upload.js?v=1";
@@ -294,8 +294,9 @@ function unitEditor(unit = {}, context, target = null) {
   return new Promise((resolve) => {
     const saveAction = unit.published ? "publish" : "save";
     const author = context.profile?.role === "author";
-    const saveLabel = unit.published || author ? "公開を申請" : "編集内容を保存";
-    const publishButton = unit.published || author ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">公開を申請</button>`;
+    const publicationLabel = context.profile?.studentNumber === "2510044" ? "学生に公開" : "公開を申請";
+    const saveLabel = unit.published || author ? publicationLabel : "編集内容を保存";
+    const publishButton = unit.published || author ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">${publicationLabel}</button>`;
     const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz の既存形式を読み込めます。今日の一問は取り込みません。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><span>${unit.published ? "保存した変更は学生側へ反映されます。" : "公開操作は画面上部の「保存・公開」から行います。"}</span></div><p id="unitStatus" class="status"></p></form>`;
     let dialog = null;
     const host = target || $("#dialogContent");
@@ -444,7 +445,7 @@ function startAdminReportWatch() {
   stopReportWatch?.();
   stopReportWatch = null;
   knownOpenReportIds = new Set();
-  if (profile?.role !== "admin") { updateReportBadge(0); return; }
+  if (!["admin", "staff"].includes(profile?.role)) { updateReportBadge(0); return; }
   let initialized = false;
   stopReportWatch = watchOpenQuestionReports((reports) => {
     updateReportBadge(reports.length);
@@ -514,8 +515,8 @@ function setTheme(theme) {
 }
 
 async function renderSettings(root) {
-  const accountLine = profile.role === "admin" ? profile.studentNumber : `${profile.studentNumber} / ${profile.email}`;
-  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : profile.role === "admin" ? "管理者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>ログイン保護</h2><p>共有端末や置き忘れから学習情報を守ります。</p></div><span class="chip">自動</span></div><div class="security-summary"><p><strong>操作がない場合</strong><span>${sessionDurationText(SESSION_IDLE_MS)}で自動ログアウト</span></p><p><strong>連続ログイン</strong><span>最長${sessionDurationText(SESSION_ABSOLUTE_MS)}</span></p></div><p class="hint">期限が切れた後は、学籍番号とパスワードでもう一度ログインしてください。</p></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
+  const accountLine = ["admin", "staff"].includes(profile.role) ? profile.studentNumber : `${profile.studentNumber} / ${profile.email}`;
+  root.innerHTML = `<section class="hero"><div><span class="chip">アカウント</span><h2>${escapeHtml(profile.name)}</h2><p>${escapeHtml(accountLine)}</p></div><span class="hero-badge">${profile.studentNumber === "2510044" ? "主管理者" : ["admin", "staff"].includes(profile.role) ? (profile.role === "staff" ? "教職員" : "管理者") : profile.role === "author" ? "問題作成者" : "学生"}</span></section><section class="panel"><div class="panel-header"><div><h2>ログイン保護</h2><p>共有端末や置き忘れから学習情報を守ります。</p></div><span class="chip">自動</span></div><div class="security-summary"><p><strong>操作がない場合</strong><span>${sessionDurationText(SESSION_IDLE_MS)}で自動ログアウト</span></p><p><strong>連続ログイン</strong><span>最長${sessionDurationText(SESSION_ABSOLUTE_MS)}</span></p></div><p class="hint">期限が切れた後は、学籍番号とパスワードでもう一度ログインしてください。</p></section><section class="panel"><div class="panel-header"><div><h2>パスワード変更</h2><p>現在のパスワードを確認して変更します。</p></div></div><form id="passwordForm" class="form-stack"><label>現在のパスワード<input name="currentPassword" type="password" autocomplete="current-password" required minlength="8"></label><label>新しいパスワード<input name="nextPassword" type="password" autocomplete="new-password" required minlength="8"></label><label>新しいパスワード（再入力）<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8"></label><button class="primary-button" type="submit">パスワードを変更</button><p id="passwordStatus" class="status"></p></form></section><section class="panel"><div class="panel-header"><div><h2>ログアウト</h2><p>この端末のログイン状態を終了します。</p></div></div><button id="logoutButton" class="danger-button" type="button">ログアウト</button></section>`;
   $("#passwordForm", root).addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const output = $("#passwordStatus", root); if (form.get("nextPassword") !== form.get("confirmPassword")) { status(output, "新しいパスワードが一致しません。", true); return; } try { loading(true, "パスワードを変更中…"); await changeOwnPassword(form.get("currentPassword"), form.get("nextPassword")); event.currentTarget.reset(); status(output, "パスワードを変更しました。"); } catch (error) { status(output, authErrorMessage(error), true); } finally { loading(false); } });
   $("#logoutButton", root).addEventListener("click", async () => { if (await confirmDialog("ログアウトしますか？")) { loading(true, "ログアウト中…"); await logout(); location.reload(); } });
 }
@@ -524,7 +525,7 @@ async function navigate(page) {
   if (page === 'dictionary' && profile.studentNumber !== '2510044') page = 'test';
   stopStudyUnitWatch();
   stopNoticeViewWatch();
-  if (page === "admin" && !["admin", "author"].includes(profile.role)) page = "test";
+  if (page === "admin" && !["admin", "staff", "author"].includes(profile.role)) page = "test";
   currentPage = page;
   $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "notices" ? "お知らせ" : page === "settings" ? "設定" : "管理";
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
@@ -550,7 +551,7 @@ async function navigate(page) {
 async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
-  $("#adminNav").hidden = !["admin", "author"].includes(profile.role);
+  $("#adminNav").hidden = !["admin", "staff", "author"].includes(profile.role);
   $("#adminNav b").textContent = profile.role === "author" ? "作成" : "管理";
   $('#dictionaryNav').hidden = profile.studentNumber !== '2510044';
   $("#noticesNav").hidden = false;
@@ -559,14 +560,14 @@ async function enterApp(foundProfile) {
   startSessionGuard(auth.currentUser.uid);
   showOnly("#appShell");
   const requestedPage = new URLSearchParams(location.search).get("page");
-  await navigate(requestedPage === "admin" && profile.role === "admin" ? "admin" : requestedPage === "notices" ? "notices" : "test");
+  await navigate(requestedPage === "admin" && ["admin", "staff"].includes(profile.role) ? "admin" : requestedPage === "notices" ? "notices" : "test");
 }
 
 async function routeAuthenticatedUser(user) {
   if (!await ensureCurrentSession(user)) return;
   const foundProfile = await getCurrentProfile();
   if (foundProfile) {
-    if ((["admin", "author"].includes(foundProfile.role) && isAdminAuthEmail(user.email)) || user.emailVerified) { await enterApp(foundProfile); return; }
+    if ((["admin", "staff", "author"].includes(foundProfile.role) && isAdminAuthEmail(user.email)) || user.emailVerified) { await enterApp(foundProfile); return; }
     $("#verifyEmail").textContent = user.email || ""; showOnly("#verifyScreen"); return;
   }
   const pending = JSON.parse(sessionStorage.getItem("caremateTestPending") || "{}");

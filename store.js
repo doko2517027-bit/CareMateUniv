@@ -519,14 +519,14 @@ export async function createAdminInvite({ studentNumber, name, role = "admin" })
   const number = safeText(studentNumber, 7);
   if (!/^\d{7}$/.test(number)) throw new Error("学籍番号は7桁で入力してください。");
   const code = newCode();
-  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || (role === "author" ? "問題作成者" : "管理者"), role, active: true, bootstrap: false, createdAt: serverTimestamp() });
+  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || (role === "author" ? "問題作成者" : role === "staff" ? "教職員" : "管理者"), role, active: true, bootstrap: false, createdAt: serverTimestamp() });
   return code;
 }
 export async function cancelInvite(code) { await deleteDoc(doc(db, COLLECTIONS.invites, code)); }
 export async function updateUserAccess(uid, patch) {
   const allowed = {};
   if (typeof patch.active === "boolean") allowed.active = patch.active;
-  if (["student", "author", "admin"].includes(patch.role)) allowed.role = patch.role;
+  if (["student", "author", "staff", "admin"].includes(patch.role)) allowed.role = patch.role;
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
 }
 

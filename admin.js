@@ -22,13 +22,14 @@ import {
   saveSubject,
   saveUnit,
   saveUnitDraft,
+  publishUnitDraft,
   setUnitPublication,
   updateUserAccess,
   updateQuestionReportStatus,
   requestUnitPublication,
   listPublicationRequests,
   reviewPublication,
-} from "./store.js?v=18";
+} from "./store.js?v=19";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -76,7 +77,12 @@ async function renderPublicationQueue(root, context) {
     const panel = document.createElement("section");
     panel.className = "panel form-stack";
     const questions = [...(request.payload.quiz || []), ...(request.payload.fill_blank || [])];
-    panel.innerHTML = `<h2>${escapeHtml(request.payload.name)}</h2><p>${questions.length}問</p><details><summary>申請内容を見る</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(request.payload, null, 2))}</pre></details>`;
+    const line = (label, value) => value ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere"><strong>${label}</strong><br>${escapeHtml(value)}</p>` : "";
+    const content = questions.map((item, index) => {
+      const answer = item.choices ? (item.answers || [item.answer]).map(choice => item.choices[choice]).join(" / ") : item.answer;
+      return `<article class="card">${line(`問題 ${index + 1}`, item.question)}${line("選択肢", item.choices?.join("\n"))}${line("正解", answer)}${line("解説", item.explanation)}${line("出典", item.source)}</article>`;
+    }).join("");
+    panel.innerHTML = `<h2 style="overflow-wrap:anywhere">${escapeHtml(request.payload.name)}</h2><p>${questions.length}問</p><details><summary>公開される内容を見る</summary><div class="form-stack">${line("試験範囲", request.payload.range)}${line("要約", request.payload.summary?.join("\n"))}${line("重要ポイント", request.payload.important_points?.join("\n"))}${content}</div></details>`;
     if (request.authorUid === auth.currentUser.uid) panel.insertAdjacentHTML("beforeend", "<p>別の管理者の審査を待っています。</p>");
     else for (const [label, approved] of [["承認して公開", true], ["差し戻す", false]]) {
       const button = document.createElement("button");
@@ -122,23 +128,24 @@ async function renderUserManager(root, context) {
   const isPrimaryAdmin = context.profile?.studentNumber === "2510044";
   root.innerHTML = `${adminHeader("ユーザー管理", "管理者と学生を分けて表示", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>新しい管理者を登録</h2><p>対象者の学籍番号と氏名だけを登録します。発行コードは一度だけ使用できます。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">管理者登録コードを発行</button></form></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>管理者一覧</h2><p>主管理者2510044の権限は固定されています。</p></div><span id="adminCount" class="chip">—</span></div><div id="adminUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>学生一覧</h2><p>${isPrimaryAdmin ? "主管理者は学生の登録削除もできます。" : "利用停止・再開と仮パスワード設定ができます。"}</p></div><span id="studentCount" class="chip">—</span></div><div id="studentUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の管理者登録コード</h2><p>コードは対象者へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
-  root.querySelector("#inviteForm")?.insertAdjacentHTML("afterbegin", '<label>登録する権限<select name="role"><option value="author">問題作成者</option><option value="admin">管理者</option></select></label>');
+  root.querySelector("#inviteForm")?.insertAdjacentHTML("afterbegin", '<label>登録する権限<select name="role"><option value="author">問題作成者</option><option value="admin">管理者</option><option value="staff">教職員</option></select></label>');
   root.querySelector("#inviteForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       context.loading(true, "登録コードを発行中…");
       const code = await createAdminInvite(Object.fromEntries(form));
       await context.show(`<h2>管理者登録コード</h2><p>対象者：${escapeHtml(form.get("studentNumber"))}</p><div class="code-box">${escapeHtml(code)}</div><p class="hint">1回だけ使用できます。新規登録画面ではメールアドレスを空欄にし、このコードをパスワード欄と再入力欄へ入力します。</p>`);
-      event.currentTarget.reset();
+      formElement.reset();
       await renderUserManager(root, context);
     } catch (error) { context.toast(error.message, true); } finally { context.loading(false); }
   });
   const data = await listUsersAndInvites();
   const userRow = (user) => {
     const isPrimary = user.studentNumber === "2510044";
-    const identity = user.role === "admin" ? (isPrimary ? "主管理者" : "管理者") : user.role === "author" ? "問題作成者" : "学生";
-    const canReset = isPrimary ? isPrimaryAdmin : user.role !== "admin" || isPrimaryAdmin || user.id === auth.currentUser?.uid;
+    const identity = user.role === "admin" ? (isPrimary ? "主管理者" : "管理者") : user.role === "author" ? "問題作成者" : user.role === "staff" ? "教職員" : "学生";
+    const canReset = isPrimary ? isPrimaryAdmin : !["admin", "staff"].includes(user.role) || isPrimaryAdmin || user.id === auth.currentUser?.uid;
     return `<article class="admin-row user-account-row"><div><strong>${escapeHtml(user.name || "名前未設定")}（${escapeHtml(user.studentNumber)}）</strong><p>${identity} / ${user.active === false ? "利用停止" : "利用中"}</p></div><div class="inline-actions">${canReset ? `<button class="secondary-button" data-reset-user="${escapeHtml(user.id)}" type="button">仮パスワード設定</button>` : ""}${isPrimary ? `<span class="chip">権限固定</span>` : `<button class="${user.active === false ? "primary-button" : "secondary-button"}" data-active="${escapeHtml(user.id)}" type="button">${user.active === false ? "利用再開" : "利用停止"}</button>${isPrimaryAdmin ? `<button class="danger-button" data-delete-user="${escapeHtml(user.id)}" type="button">登録削除</button>` : ""}`}</div></article>`;
   };
   const administrators = data.users.filter((user) => user.role === "admin");
@@ -148,12 +155,16 @@ async function renderUserManager(root, context) {
   root.querySelector("#adminUserList").innerHTML = administrators.length ? administrators.map(userRow).join("") : `<div class="empty">管理者はいません。</div>`;
   root.querySelector("#studentUserList").innerHTML = students.length ? students.map(userRow).join("") : `<div class="empty">学生はいません。</div>`;
   const inviteList = root.querySelector("#inviteList");
-  for (const user of data.users.filter(item => item.role !== "admin")) {
+  for (const user of data.users.filter(item => item.studentNumber !== "2510044")) {
     const row = [...root.querySelectorAll("[data-active]")].find(button => button.dataset.active === user.id)?.parentElement;
     if (!row) continue;
     const roles = document.createElement("select");
+    roles.className = "field";
     roles.setAttribute("aria-label", `${user.name}の権限`);
-    for (const [value, label] of [["student", "学生"], ["author", "問題作成者"], ["admin", "管理者"]]) roles.add(new Option(label, value));
+    for (const [value, label] of [["student", "学生"], ["author", "問題作成者"], ["admin", "管理者"], ["staff", "教職員"]]) {
+      if (value === "student" && user.inviteCode) continue;
+      roles.add(new Option(label, value));
+    }
     roles.value = user.role;
     roles.onchange = async () => {
       if (!await context.confirm(`${user.name}の権限を${roles.selectedOptions[0].text}に変更しますか？`)) { roles.value = user.role; return; }
@@ -162,7 +173,7 @@ async function renderUserManager(root, context) {
     };
     row.append(roles);
   }
-  inviteList.innerHTML = data.invites.length ? data.invites.map((invite) => `<article class="admin-row"><div><strong>${escapeHtml(invite.name)}（${escapeHtml(invite.studentNumber)}）</strong><p>${invite.role === "admin" ? "管理者" : "旧形式の学生登録"}</p><div class="code-inline">${escapeHtml(invite.code)}</div></div><button class="danger-button" data-cancel="${escapeHtml(invite.code)}" type="button">無効化</button></article>`).join("") : `<div class="empty">未使用コードはありません。</div>`;
+  inviteList.innerHTML = data.invites.length ? data.invites.map((invite) => `<article class="admin-row"><div><strong>${escapeHtml(invite.name)}（${escapeHtml(invite.studentNumber)}）</strong><p>${({ admin: "管理者", staff: "教職員", author: "問題作成者" })[invite.role] || "学生"}</p><div class="code-inline">${escapeHtml(invite.code)}</div></div><button class="danger-button" data-cancel="${escapeHtml(invite.code)}" type="button">無効化</button></article>`).join("") : `<div class="empty">未使用コードはありません。</div>`;
   root.querySelectorAll("[data-active]").forEach((button) => button.addEventListener("click", async () => {
     const user = data.users.find((item) => item.id === button.dataset.active);
     if (!await context.confirm(`${user.name}を${user.active === false ? "利用再開" : "利用停止"}しますか？`)) return;
@@ -352,7 +363,8 @@ async function renderUnitManager(root, context, category, subject) {
     const result = await context.form("単元設定", [{ name: "name", label: "単元名", value: editable.name || "", required: true }, { name: "range", label: "試験範囲", value: editable.range || "" }, { name: "order", label: "表示順", hint: "表示の順番の番号", type: "number", value: editable.order || 0 }]);
     if (!result) return;
     if (editable.published) {
-      await requestUnitPublication(subject.id, unit.id, { ...editable, ...result });
+      if (context.profile.studentNumber === "2510044") await publishUnitDraft(subject.id, { ...editable, ...result });
+      else await requestUnitPublication(subject.id, unit.id, { ...editable, ...result });
       context.toast("単元設定を保存し、学生側へ反映しました。");
     } else {
       await saveUnitDraft(subject.id, { ...editable, ...result });
@@ -372,8 +384,13 @@ async function renderUnitManager(root, context, category, subject) {
       const action = result._action;
       delete result._action;
       if (action === "publish" || (fresh.published && action !== "unpublish")) {
-        await requestUnitPublication(subject.id, fresh.id, result);
-        context.toast("公開申請を送信しました。");
+        if (context.profile.studentNumber === "2510044") {
+          await publishUnitDraft(subject.id, { ...result, id: fresh.id });
+          context.toast("公開しました。");
+        } else {
+          await requestUnitPublication(subject.id, fresh.id, result);
+          context.toast("公開申請を送信しました。");
+        }
       } else if (action === "unpublish") {
         await setUnitPublication(subject.id, fresh.id, false);
         context.toast("公開を停止しました。");

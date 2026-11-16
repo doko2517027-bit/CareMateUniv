@@ -147,7 +147,7 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
     if (await getCurrentProfile()) throw Object.assign(new Error("この学籍番号は登録済みです。"), { code: "auth/email-already-in-use" });
     const inviteSnapshot = await getDoc(doc(db, INVITE_COLLECTION, code));
     const invite = inviteSnapshot.exists() ? inviteSnapshot.data() : null;
-    if (!invite || invite.active !== true || !["admin", "author"].includes(invite.role) || invite.studentNumber !== number) {
+    if (!invite || invite.active !== true || !["admin", "staff", "author"].includes(invite.role) || invite.studentNumber !== number) {
       throw new Error("管理者としての登録権限を確認できませんでした。");
     }
     return result.user;
@@ -214,7 +214,7 @@ async function createProfile({ studentNumber, inviteCode = "", role }) {
       const inviteSnapshot = await transaction.get(inviteRef);
       if (!inviteSnapshot.exists()) throw new Error("登録権限が無効か、すでに使用されています。");
       invite = inviteSnapshot.data();
-      if (invite.active !== true || !["admin", "author"].includes(invite.role) || invite.studentNumber !== number) {
+      if (invite.active !== true || !["admin", "staff", "author"].includes(invite.role) || invite.studentNumber !== number) {
         throw new Error("管理者としての登録権限を確認できませんでした。");
       }
     }
