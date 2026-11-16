@@ -177,18 +177,24 @@ async function renderUserManager(root, context) {
   };
   const administrators = data.users.filter((user) => user.role === "admin");
   const staff = data.users.filter((user) => user.role === "staff");
-  const students = data.users.filter((user) => !["admin", "staff"].includes(user.role));
+  const authors = data.users.filter(user => user.role === "author");
+  const students = data.users.filter(user => user.role === "student");
   root.querySelector("#studentUserList").closest(".user-group-panel").insertAdjacentHTML("beforebegin",
     '<section class="panel user-group-panel"><div class="panel-header"><h2>教職員一覧</h2><span id="staffCount" class="chip"></span></div><div id="staffUserList" class="admin-list"></div></section>');
   root.querySelector("#staffCount").textContent = `${staff.length}人`;
   root.querySelector("#staffUserList").innerHTML = staff.length ? staff.map(userRow).join("") : '<div class="empty">教職員はいません。</div>';
+  root.querySelector("#studentUserList").closest(".user-group-panel").insertAdjacentHTML("beforebegin",
+    '<section class="panel user-group-panel"><div class="panel-header"><h2>問題作成者一覧</h2><span id="authorCount" class="chip"></span></div><div id="authorUserList" class="admin-list"></div></section>');
+  root.querySelector("#authorCount").textContent = `${authors.length}人`;
+  root.querySelector("#authorUserList").innerHTML = authors.length ? authors.map(userRow).join("") : '<div class="empty">問題作成者はいません。</div>';
   root.querySelector("#adminCount").textContent = `${administrators.length}人`;
   root.querySelector("#studentCount").textContent = `${students.length}人`;
   root.querySelector("#adminUserList").innerHTML = administrators.length ? administrators.map(userRow).join("") : `<div class="empty">管理者はいません。</div>`;
   root.querySelector("#studentUserList").innerHTML = students.length ? students.map(userRow).join("") : `<div class="empty">学生はいません。</div>`;
   const inviteList = root.querySelector("#inviteList");
-  for (const [index, row] of [...root.querySelectorAll("#adminUserList .user-account-row, #staffUserList .user-account-row, #studentUserList .user-account-row")].entries()) {
-    const user = [...administrators, ...staff, ...students][index];
+  const displayedUsers = [...administrators, ...staff, ...authors, ...students];
+  for (const [index, row] of [...root.querySelectorAll(".user-group-panel .user-account-row")].entries()) {
+    const user = displayedUsers[index];
     if (user.studentNumber === "2510044" && user.id !== auth.currentUser.uid) continue;
     const button = document.createElement("button");
     button.type = "button";
