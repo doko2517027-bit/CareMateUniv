@@ -1,34 +1,23 @@
-export function addTestSearch(root, loadEntries) {
-  const panel = document.createElement("section");
-  panel.className = "panel form-stack";
-  panel.innerHTML = '<label>試験対策を検索<input type="search" placeholder="区分・科目・単元・試験範囲"></label><div class="admin-list" aria-live="polite"></div>';
-  const input = panel.querySelector("input");
-  const results = panel.querySelector(".admin-list");
-  root.prepend(panel);
-  const normalize = value => String(value || "").normalize("NFKC").toLocaleLowerCase("ja");
-  let entries;
-  input.addEventListener("input", async () => {
+export function addListSearch(list, label, extraText = []) {
+  const rows = [...list.children].filter(row => !row.classList.contains("empty"));
+  const field = document.createElement("label");
+  field.className = "form-stack";
+  field.textContent = `${label}を検索`;
+  const input = document.createElement("input");
+  input.type = "search";
+  field.append(input);
+  const message = document.createElement("p");
+  message.className = "empty";
+  message.hidden = true;
+  message.setAttribute("role", "status");
+  message.textContent = "該当する項目がありません。";
+  list.before(field);
+  list.after(message);
+  const normalize = text => String(text || "").normalize("NFKC").toLocaleLowerCase("ja");
+  const index = rows.map((row, i) => normalize(`${row.textContent} ${extraText[i] || ""}`));
+  input.addEventListener("input", () => {
     const terms = normalize(input.value).trim().split(/\s+/).filter(Boolean);
-    if (!terms.length) { results.replaceChildren(); return; }
-    results.textContent = "検索中…";
-    try {
-      entries ||= loadEntries().catch(error => { entries = null; throw error; });
-      const rows = await entries;
-      if (!panel.isConnected || terms.join(" ") !== normalize(input.value).trim().split(/\s+/).join(" ")) return;
-      const matching = rows.filter(row => terms.every(term => normalize(row.words).includes(term)));
-      results.textContent = matching.length ? `${matching.length}件` : "該当する項目がありません。";
-      for (const row of matching.slice(0, 60)) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "secondary-button";
-        button.style.overflowWrap = "anywhere";
-        button.textContent = row.label;
-        button.onclick = row.open;
-        results.append(button);
-      }
-      if (matching.length > 60) results.append("検索語を追加すると、さらに絞り込めます。");
-    } catch {
-      if (panel.isConnected && input.value.trim()) results.textContent = "検索できませんでした。入力し直して再試行してください。";
-    }
+    rows.forEach((row, i) => { row.hidden = !terms.every(term => index[i].includes(term)); });
+    message.hidden = !terms.length || rows.some(row => !row.hidden);
   });
 }

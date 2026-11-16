@@ -106,18 +106,7 @@ export async function renderTestHome(root, context) {
     const filtered = selected.id === "__other__" ? unclassified : subjects.filter((subject) => subject.categoryId === selected.id);
     renderCategory(root, context, selected, filtered, overview);
   }));
-  addTestSearch(root, async () => entries.flatMap(category => [
-    { label: category.name, words: category.name, open: () => renderCategory(root, context, category, category.items, overview) },
-    ...category.items.flatMap(subject => {
-      const label = `${category.name} / ${subject.name}`;
-      const open = () => renderSubject(root, context, subject, { category, subjects: category.items });
-      return [{ label, words: label, open }, ...(overview.get(subject.id)?.units || []).map(unit => ({
-        label: `${label} / ${unit.name}${unit.range ? " — " + unit.range : ""}`,
-        words: `${label} ${unit.name} ${unit.range || ""}`,
-        open: () => renderSubject(root, context, subject, { category, subjects: category.items }, unit.id),
-      }))];
-    }),
-  ]));
+  addListSearch(grid, "区分");
 }
 
 async function renderCategory(root, context, category, subjects, knownOverview = null) {
@@ -130,6 +119,7 @@ async function renderCategory(root, context, category, subjects, knownOverview =
     const item = overview.get(subject.id) || { value: 0, units: [] };
     return `<button class="catalog-navigation-card progress-navigation-card" data-subject="${escapeHtml(subject.id)}" type="button"><span class="catalog-icon">📖</span><span><strong>${escapeHtml(subject.name)}</strong><small>${item.units.length}単元・解答進捗 ${item.value}%</small>${progressBar(item.value, `${subject.name} 解答進捗`)}</span>${progressRing(item.value, subject.name)}<i>›</i></button>`;
   }).join("");
+  addListSearch(subjectGrid, "科目");
   root.querySelectorAll("[data-subject]").forEach((button) => button.addEventListener("click", () => {
     const subject = subjects.find((item) => item.id === button.dataset.subject);
     subject._navigationParent = { category, subjects };
@@ -152,6 +142,7 @@ async function renderSubject(root, context, subject, parent = null, focusUnitId 
     const answered = Math.min(total, Math.max(Number(progressItems[index]?.answered || 0), Object.keys(progressItems[index]?.questionStats || {}).length));
     return `<article class="card unit-card"><div class="unit-progress-heading"><div><span class="chip">${unit.published ? "公開中" : "準備中"}</span><h3>${escapeHtml(unit.name)}</h3><p>${escapeHtml(unit.range || "範囲の指定はありません")}</p></div>${progressRing(value, unit.name)}</div><div class="progress-summary"><strong>解答進捗 ${value}%</strong><span>${answered} / ${total}問</span></div>${progressBar(value, `${unit.name} 解答進捗`, "progress-track")}<div class="feature-grid"><button class="feature-button" data-action="study" data-index="${index}"><strong>問題を解く</strong><small>穴埋め・四択</small></button><button class="feature-button" data-action="list" data-index="${index}"><strong>問題一覧</strong><small>答えと解説も確認</small></button><button class="feature-button" data-action="summary" data-index="${index}"><strong>要約</strong><small>全体をつかむ</small></button><button class="feature-button" data-action="points" data-index="${index}"><strong>重要ポイント</strong><small>要点を復習</small></button></div></article>`;
   }).join("");
+  addListSearch(grid, "単元・試験範囲");
   const focusIndex = units.findIndex(unit => unit.id === focusUnitId);
   if (focusIndex >= 0) grid.children[focusIndex]?.scrollIntoView({ block: "start" });
   grid.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", async () => {
@@ -372,4 +363,4 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false 
     });
   });
 }
-import { addTestSearch } from "./test-search.js?v=1";
+import { addListSearch } from "./test-search.js?v=2";
