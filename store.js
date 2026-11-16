@@ -235,6 +235,46 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
   }
   return id;
 }
+
+export async function requestUnitPublication(subjectId, unitId, input) {
+  const payload = editableUnitPayload(input);
+  if (!payload.name || !(payload.quiz.length || payload.fill_blank.length)) {
+    throw new Error("単元名と問題を入力してください。");
+  }
+  await addDoc(collection(db, "studyAppPublicationRequests"), {
+    authorUid: auth.currentUser.uid, subjectId, unitId, payload,
+    status: "pending", createdAt: serverTimestamp(),
+  });
+}
+
+export async function listPublicationRequests() {
+  const rows = await getDocsFromServer(query(collection(db, "studyAppPublicationRequests"), where("status", "==", "pending")));
+  return rows.docs.map(row => ({ ...row.data(), id: row.id }));
+}
+
+export async function reviewPublication(request, approved) {
+  if (request.authorUid === auth.currentUser.uid) throw new Error("別の管理者が審査してください。");
+  const ref = doc(db, "studyAppPublicationRequests", request.id);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    const current = snapshot.data();
+    if (current?.status !== "pending") throw new Error("この申請は審査済みです。");
+    if (approved) {
+      const subject = doc(db, COLLECTIONS.subjects, current.subjectId);
+      const unit = current.unitId ? doc(collection(subject, "units"), current.unitId) : doc(collection(subject, "units"));
+      const subjectSnapshot = await transaction.get(subject);
+      const unitSnapshot = await transaction.get(unit);
+      if (!subjectSnapshot.exists() || (current.unitId && !unitSnapshot.exists())) throw new Error("公開先が見つかりません。");
+      transaction.set(unit, {
+        ...current.payload, published: true,
+        publicationRequestId: ref.id, publishedAt: serverTimestamp(),
+        publishedBy: auth.currentUser.uid, updatedAt: serverTimestamp(),
+      });
+      transaction.update(subject, { published: true, updatedAt: serverTimestamp() });
+    }
+    transaction.update(ref, { status: approved ? "approved" : "rejected" });
+  });
+}
 export async function setUnitPublication(subjectId, unitId, published) {
   await setDoc(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId), {
     published: published === true,
@@ -337,6 +377,15 @@ export async function applyQuestionReportCorrection({ reportId, questionIndex, o
     }
     const next = [...questions];
     next[questionIndex] = corrected;
+    const unit = unitSnap.data();
+    if (unit.published === true) {
+      transaction.set(doc(collection(db, "studyAppPublicationRequests")), {
+        authorUid: currentUser.uid, subjectId: report.subjectId, unitId: report.unitId,
+        payload: editableUnitPayload({ ...unit, [type]: next }),
+        status: "pending", createdAt: serverTimestamp(),
+      });
+      return;
+    }
     transaction.update(unitRef, { [type]: next, updatedAt: serverTimestamp() });
     transaction.update(reportRef, {
       originalQuestion: report.originalQuestion || report.question,
@@ -466,17 +515,18 @@ export async function listUsersAndInvites() {
     invites: invites.docs.map((item) => ({ code: item.id, ...item.data() })).sort((a, b) => String(a.studentNumber).localeCompare(String(b.studentNumber))),
   };
 }
-export async function createAdminInvite({ studentNumber, name }) {
+export async function createAdminInvite({ studentNumber, name, role = "admin" }) {
   const number = safeText(studentNumber, 7);
   if (!/^\d{7}$/.test(number)) throw new Error("学籍番号は7桁で入力してください。");
   const code = newCode();
-  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || "管理者", role: "admin", active: true, bootstrap: false, createdAt: serverTimestamp() });
+  await setDoc(doc(db, COLLECTIONS.invites, code), { studentNumber: number, name: safeText(name, 80) || (role === "author" ? "問題作成者" : "管理者"), role, active: true, bootstrap: false, createdAt: serverTimestamp() });
   return code;
 }
 export async function cancelInvite(code) { await deleteDoc(doc(db, COLLECTIONS.invites, code)); }
 export async function updateUserAccess(uid, patch) {
   const allowed = {};
   if (typeof patch.active === "boolean") allowed.active = patch.active;
+  if (["student", "author", "admin"].includes(patch.role)) allowed.role = patch.role;
   await updateDoc(doc(db, COLLECTIONS.users, uid), { ...allowed, updatedAt: serverTimestamp() });
 }
 

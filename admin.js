@@ -22,11 +22,13 @@ import {
   saveSubject,
   saveUnit,
   saveUnitDraft,
-  publishUnitDraft,
   setUnitPublication,
   updateUserAccess,
   updateQuestionReportStatus,
-} from "./store.js?v=17";
+  requestUnitPublication,
+  listPublicationRequests,
+  reviewPublication,
+} from "./store.js?v=18";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -42,7 +44,52 @@ const progressRing = (value, label) => {
 };
 
 export function renderAdmin(root, context) {
+  if (context.profile.role === "author") return renderAuthorTests(root, context);
   renderAdminMenu(root, context);
+}
+
+async function renderAuthorTests(root, context) {
+  root.innerHTML = '<section class="panel form-stack"><h2>テスト管理</h2><label>公開先の科目<select id="authorSubject"></select></label><button class="primary-button" id="authorCreate" type="button">問題を作成して申請</button></section>';
+  const select = root.querySelector("#authorSubject");
+  const button = root.querySelector("#authorCreate");
+  button.disabled = true;
+  const subjects = await listSubjects({ publishedOnly: true });
+  for (const subject of subjects) select.add(new Option(subject.name, subject.id));
+  button.disabled = !subjects.length;
+  button.onclick = async () => {
+    try {
+      const subjectId = select.value;
+      const result = await context.unitEditor({ name: "", quiz: [], fill_blank: [], published: false });
+      if (!result) return;
+      await requestUnitPublication(subjectId, "", result);
+      context.toast("公開申請を送信しました。");
+    } catch (error) { context.toast(error.message, true); }
+  };
+}
+
+async function renderPublicationQueue(root, context) {
+  root.innerHTML = adminHeader("公開申請", "内容を確認して公開を承認します。");
+  bindAdminBack(root, () => renderAdminMenu(root, context));
+  const rows = await listPublicationRequests();
+  if (!rows.length) root.insertAdjacentHTML("beforeend", '<p class="empty">未審査の申請はありません。</p>');
+  for (const request of rows) {
+    const panel = document.createElement("section");
+    panel.className = "panel form-stack";
+    const questions = [...(request.payload.quiz || []), ...(request.payload.fill_blank || [])];
+    panel.innerHTML = `<h2>${escapeHtml(request.payload.name)}</h2><p>${questions.length}問</p><details><summary>申請内容を見る</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(request.payload, null, 2))}</pre></details>`;
+    if (request.authorUid === auth.currentUser.uid) panel.insertAdjacentHTML("beforeend", "<p>別の管理者の審査を待っています。</p>");
+    else for (const [label, approved] of [["承認して公開", true], ["差し戻す", false]]) {
+      const button = document.createElement("button");
+      button.className = approved ? "primary-button" : "secondary-button";
+      button.textContent = label;
+      button.onclick = async () => {
+        try { await reviewPublication(request, approved); await renderPublicationQueue(root, context); }
+        catch (error) { context.toast(error.message, true); }
+      };
+      panel.append(button);
+    }
+    root.append(panel);
+  }
 }
 
 function adminHeader(title, description, onBack) {
@@ -59,6 +106,11 @@ function renderAdminMenu(root, context) {
   const notificationGranted = notificationAvailable && Notification.permission === "granted";
   root.innerHTML = `<section class="hero admin-hero"><div><span class="chip">${primary ? "主管理者" : "管理者"}</span><h2>管理メニュー</h2><p>行う作業を選んで専用画面へ移動します。</p></div><span class="hero-badge">${primary ? "OWNER" : "ADMIN"}</span></section>${notificationGranted ? "" : `<section class="admin-notification-banner"><div><strong>修正依頼の通知</strong><p>${notificationAvailable ? "通知を許可すると、新しい修正依頼をすぐ確認できます。" : "このブラウザは通知に対応していません。"}</p></div>${notificationAvailable ? `<button id="enableAdminNotifications" class="primary-button" type="button">通知を有効にする</button>` : ""}</section>`}<section class="admin-menu-grid"><button data-admin-page="tests" type="button"><span>📚</span><strong>テスト管理</strong><small>区分・科目・単元・問題</small><i>›</i></button><button data-admin-page="analytics" type="button"><span>📊</span><strong>全体の学習分析</strong><small>正答率・苦手問題・解答数</small><i>›</i></button><button data-admin-page="users" type="button"><span>👥</span><strong>ユーザー管理</strong><small>管理者と学生を分けて管理</small><i>›</i></button><button data-admin-page="notices" type="button"><span>📣</span><strong>お知らせ管理</strong><small>即時通知・写真・PDF・書式</small><i>›</i></button><button class="report-menu-button" data-admin-page="reports" type="button"><span>✎</span><span class="report-menu-copy"><strong>修正依頼</strong><small>問題・答え・解説の報告</small></span><em data-report-menu-badge class="notification-count-badge" ${context.reportCount ? "" : "hidden"}>${context.reportCount || 0}</em><i>›</i></button></section>`;
   root.querySelector('[data-admin-page="tests"]').onclick = () => renderTestManager(root, context);
+  const review = document.createElement("button");
+  review.type = "button";
+  review.innerHTML = "<span>✓</span><strong>公開申請</strong><small>審査・公開</small><i>›</i>";
+  review.onclick = () => renderPublicationQueue(root, context).catch(error => context.toast(error.message, true));
+  root.querySelector(".admin-menu-grid").append(review);
   root.querySelector('[data-admin-page="analytics"]').onclick = () => renderAnalytics(root, context, { back: () => renderAdminMenu(root, context) });
   root.querySelector('[data-admin-page="users"]').onclick = () => renderUserManager(root, context);
   root.querySelector('[data-admin-page="notices"]').onclick = () => renderAnnouncementManager(root, context, () => renderAdminMenu(root, context));
@@ -70,6 +122,7 @@ async function renderUserManager(root, context) {
   const isPrimaryAdmin = context.profile?.studentNumber === "2510044";
   root.innerHTML = `${adminHeader("ユーザー管理", "管理者と学生を分けて表示", () => renderAdminMenu(root, context))}<section class="panel"><div class="panel-header"><div><h2>新しい管理者を登録</h2><p>対象者の学籍番号と氏名だけを登録します。発行コードは一度だけ使用できます。</p></div></div><form id="inviteForm" class="form-stack"><div class="split"><label>学籍番号<input name="studentNumber" inputmode="numeric" pattern="[0-9]{7}" maxlength="7" required></label><label>氏名<input name="name" maxlength="80" required></label></div><button class="primary-button" type="submit">管理者登録コードを発行</button></form></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>管理者一覧</h2><p>主管理者2510044の権限は固定されています。</p></div><span id="adminCount" class="chip">—</span></div><div id="adminUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel user-group-panel"><div class="panel-header"><div><h2>学生一覧</h2><p>${isPrimaryAdmin ? "主管理者は学生の登録削除もできます。" : "利用停止・再開と仮パスワード設定ができます。"}</p></div><span id="studentCount" class="chip">—</span></div><div id="studentUserList" class="admin-list"><p class="empty">読み込み中…</p></div></section><section class="panel"><div class="panel-header"><div><h2>未使用の管理者登録コード</h2><p>コードは対象者へ安全な方法で渡してください。</p></div></div><div id="inviteList" class="admin-list"></div></section>`;
   bindAdminBack(root, () => renderAdminMenu(root, context));
+  root.querySelector("#inviteForm")?.insertAdjacentHTML("afterbegin", '<label>登録する権限<select name="role"><option value="author">問題作成者</option><option value="admin">管理者</option></select></label>');
   root.querySelector("#inviteForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -84,7 +137,7 @@ async function renderUserManager(root, context) {
   const data = await listUsersAndInvites();
   const userRow = (user) => {
     const isPrimary = user.studentNumber === "2510044";
-    const identity = user.role === "admin" ? (isPrimary ? "主管理者" : "管理者") : "学生";
+    const identity = user.role === "admin" ? (isPrimary ? "主管理者" : "管理者") : user.role === "author" ? "問題作成者" : "学生";
     const canReset = isPrimary ? isPrimaryAdmin : user.role !== "admin" || isPrimaryAdmin || user.id === auth.currentUser?.uid;
     return `<article class="admin-row user-account-row"><div><strong>${escapeHtml(user.name || "名前未設定")}（${escapeHtml(user.studentNumber)}）</strong><p>${identity} / ${user.active === false ? "利用停止" : "利用中"}</p></div><div class="inline-actions">${canReset ? `<button class="secondary-button" data-reset-user="${escapeHtml(user.id)}" type="button">仮パスワード設定</button>` : ""}${isPrimary ? `<span class="chip">権限固定</span>` : `<button class="${user.active === false ? "primary-button" : "secondary-button"}" data-active="${escapeHtml(user.id)}" type="button">${user.active === false ? "利用再開" : "利用停止"}</button>${isPrimaryAdmin ? `<button class="danger-button" data-delete-user="${escapeHtml(user.id)}" type="button">登録削除</button>` : ""}`}</div></article>`;
   };
@@ -95,6 +148,20 @@ async function renderUserManager(root, context) {
   root.querySelector("#adminUserList").innerHTML = administrators.length ? administrators.map(userRow).join("") : `<div class="empty">管理者はいません。</div>`;
   root.querySelector("#studentUserList").innerHTML = students.length ? students.map(userRow).join("") : `<div class="empty">学生はいません。</div>`;
   const inviteList = root.querySelector("#inviteList");
+  for (const user of data.users.filter(item => item.role !== "admin")) {
+    const row = [...root.querySelectorAll("[data-active]")].find(button => button.dataset.active === user.id)?.parentElement;
+    if (!row) continue;
+    const roles = document.createElement("select");
+    roles.setAttribute("aria-label", `${user.name}の権限`);
+    for (const [value, label] of [["student", "学生"], ["author", "問題作成者"], ["admin", "管理者"]]) roles.add(new Option(label, value));
+    roles.value = user.role;
+    roles.onchange = async () => {
+      if (!await context.confirm(`${user.name}の権限を${roles.selectedOptions[0].text}に変更しますか？`)) { roles.value = user.role; return; }
+      try { await updateUserAccess(user.id, { role: roles.value }); await renderUserManager(root, context); }
+      catch (error) { roles.value = user.role; context.toast(error.message, true); }
+    };
+    row.append(roles);
+  }
   inviteList.innerHTML = data.invites.length ? data.invites.map((invite) => `<article class="admin-row"><div><strong>${escapeHtml(invite.name)}（${escapeHtml(invite.studentNumber)}）</strong><p>${invite.role === "admin" ? "管理者" : "旧形式の学生登録"}</p><div class="code-inline">${escapeHtml(invite.code)}</div></div><button class="danger-button" data-cancel="${escapeHtml(invite.code)}" type="button">無効化</button></article>`).join("") : `<div class="empty">未使用コードはありません。</div>`;
   root.querySelectorAll("[data-active]").forEach((button) => button.addEventListener("click", async () => {
     const user = data.users.find((item) => item.id === button.dataset.active);
@@ -285,7 +352,7 @@ async function renderUnitManager(root, context, category, subject) {
     const result = await context.form("単元設定", [{ name: "name", label: "単元名", value: editable.name || "", required: true }, { name: "range", label: "試験範囲", value: editable.range || "" }, { name: "order", label: "表示順", hint: "表示の順番の番号", type: "number", value: editable.order || 0 }]);
     if (!result) return;
     if (editable.published) {
-      await publishUnitDraft(subject.id, { ...editable, ...result });
+      await requestUnitPublication(subject.id, unit.id, { ...editable, ...result });
       context.toast("単元設定を保存し、学生側へ反映しました。");
     } else {
       await saveUnitDraft(subject.id, { ...editable, ...result });
@@ -304,9 +371,9 @@ async function renderUnitManager(root, context, category, subject) {
       if (!result) { editing = false; break; }
       const action = result._action;
       delete result._action;
-      if (action === "publish") {
-        await publishUnitDraft(subject.id, { id: fresh.id, ...result });
-        context.toast(fresh.published ? "変更を保存して学生側へ反映しました。" : "公開しました。");
+      if (action === "publish" || (fresh.published && action !== "unpublish")) {
+        await requestUnitPublication(subject.id, fresh.id, result);
+        context.toast("公開申請を送信しました。");
       } else if (action === "unpublish") {
         await setUnitPublication(subject.id, fresh.id, false);
         context.toast("公開を停止しました。");

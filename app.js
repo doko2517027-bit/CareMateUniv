@@ -10,14 +10,15 @@ import {
   finishAdminRegistration,
   getCurrentProfile,
   loginAccount,
+  prepareLoginConnection,
   logout,
   requestPasswordReset,
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=10";
+} from "./auth.js?v=12";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=15";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=16";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=17";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { uploadStudyFile } from "./upload.js?v=1";
@@ -292,8 +293,9 @@ async function uploadQuestionImage(file, editor, context) {
 function unitEditor(unit = {}, context, target = null) {
   return new Promise((resolve) => {
     const saveAction = unit.published ? "publish" : "save";
-    const saveLabel = unit.published ? "変更を保存して反映" : "編集内容を保存";
-    const publishButton = unit.published ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">学生に公開</button>`;
+    const author = context.profile?.role === "author";
+    const saveLabel = unit.published || author ? "公開を申請" : "編集内容を保存";
+    const publishButton = unit.published || author ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">公開を申請</button>`;
     const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><p class="hint">summary / important_points / fill_blank / quiz の既存形式を読み込めます。今日の一問は取り込みません。</p><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><span>${unit.published ? "保存した変更は学生側へ反映されます。" : "公開操作は画面上部の「保存・公開」から行います。"}</span></div><p id="unitStatus" class="status"></p></form>`;
     let dialog = null;
     const host = target || $("#dialogContent");
@@ -522,28 +524,34 @@ async function navigate(page) {
   if (page === 'dictionary' && profile.studentNumber !== '2510044') page = 'test';
   stopStudyUnitWatch();
   stopNoticeViewWatch();
-  if (page === "admin" && profile.role !== "admin") page = "test";
+  if (page === "admin" && !["admin", "author"].includes(profile.role)) page = "test";
   currentPage = page;
   $("#pageTitle").textContent = page === "test" ? "試験対策" : page === "analytics" ? "学習分析" : page === "notices" ? "お知らせ" : page === "settings" ? "設定" : "管理";
   $("#bottomNav").querySelectorAll("[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
-  loading(true, "画面を読み込み中…");
+  const previous = $("#appContent");
+  const root = previous.cloneNode(false);
+  root.innerHTML = '<p class="empty" role="status">読み込み中…</p>';
+  previous.replaceWith(root);
   try {
-    const root = $("#appContent");
     if (page === 'dictionary') { $('#pageTitle').textContent = '辞書'; await renderDictionary(root, profile); }
     if (page === "test") await renderTestHome(root, context);
     if (page === "analytics") await renderPersonalAnalytics(root, context);
     if (page === "settings") await renderSettings(root);
     if (page === "notices") renderStudentNotices(root, context, { focusId: new URLSearchParams(location.search).get("notice") || "" });
-    if (page === "admin") renderAdmin(root, context);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  } catch (error) { $("#appContent").innerHTML = `<section class="panel"><div class="empty"><strong>画面を読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryPage" class="primary-button">再読み込み</button></div></section>`; $("#retryPage").onclick = () => navigate(currentPage); }
-  finally { loading(false); }
+    if (page === "admin") await renderAdmin(root, context);
+    if (root.isConnected) window.scrollTo({ top: 0, behavior: "instant" });
+  } catch (error) {
+    if (!root.isConnected) return;
+    root.innerHTML = `<section class="panel"><div class="empty"><strong>画面を読み込めませんでした</strong><p>${escapeHtml(error.message)}</p><button id="retryPage" class="primary-button">再読み込み</button></div></section>`;
+    root.querySelector("#retryPage").onclick = () => navigate(page);
+  }
 }
 
 async function enterApp(foundProfile) {
   profile = foundProfile; context.profile = foundProfile;
   if (profile.active === false) { await logout(); throw new Error("このアカウントは管理者により利用停止されています。"); }
-  $("#adminNav").hidden = profile.role !== "admin";
+  $("#adminNav").hidden = !["admin", "author"].includes(profile.role);
+  $("#adminNav b").textContent = profile.role === "author" ? "作成" : "管理";
   $('#dictionaryNav').hidden = profile.studentNumber !== '2510044';
   $("#noticesNav").hidden = false;
   startAdminReportWatch();
@@ -558,7 +566,7 @@ async function routeAuthenticatedUser(user) {
   if (!await ensureCurrentSession(user)) return;
   const foundProfile = await getCurrentProfile();
   if (foundProfile) {
-    if (foundProfile.role === "admin" || user.emailVerified) { await enterApp(foundProfile); return; }
+    if ((["admin", "author"].includes(foundProfile.role) && isAdminAuthEmail(user.email)) || user.emailVerified) { await enterApp(foundProfile); return; }
     $("#verifyEmail").textContent = user.email || ""; showOnly("#verifyScreen"); return;
   }
   const pending = JSON.parse(sessionStorage.getItem("caremateTestPending") || "{}");
@@ -589,7 +597,7 @@ function bindEvents() {
     $("#registerHint").textContent = admin ? "管理者から発行された登録コードで登録します。" : "大学メールへ本人確認メールを送信します。メールアドレスは学籍番号から自動設定されます。";
     $("#registerPasswordLabel").textContent = admin ? "管理者登録コード" : "パスワード";
     $("#registerSubmit").textContent = admin ? "管理者登録を続ける" : "確認メールを送信";
-    $("#toggleAdminRegistration").textContent = admin ? "学生として登録する" : "管理者として登録する";
+    $("#toggleAdminRegistration").textContent = admin ? "学生として登録する" : "問題作成者・管理者として登録する";
     $("#registerForm").reset();
   };
   $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); createStoredSession(user.uid); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
@@ -651,6 +659,7 @@ function bindEvents() {
 
 async function start() {
   bindEvents();
+  $("#loginForm").addEventListener("focusin", prepareLoginConnection, { once: true });
   setTheme(localStorage.getItem("caremateTestTheme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
   const sessionEndMessage = sessionStorage.getItem(SESSION_END_MESSAGE_KEY) || "";
   sessionStorage.removeItem(SESSION_END_MESSAGE_KEY);

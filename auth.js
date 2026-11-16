@@ -28,6 +28,10 @@ const PROFILE_COLLECTION = "studyAppUsers";
 const INVITE_COLLECTION = "studyAppInvites";
 const STUDENT_NUMBER_COLLECTION = "studyAppStudentNumbers";
 const API_BASE = "https://caremate-auth.onrender.com/api";
+
+export function prepareLoginConnection() {
+  void fetch(new URL("/health", API_BASE), { mode: "no-cors", cache: "no-store", signal: AbortSignal.timeout(60_000) }).catch(() => {});
+}
 const EMAIL_ACTION_SETTINGS = { url: "https://doko2517027-bit.github.io/CareMateUniv/" };
 const VERIFICATION_COOLDOWN_MS = 60_000;
 
@@ -128,7 +132,7 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
   try {
     const inviteSnapshot = await getDoc(doc(db, INVITE_COLLECTION, code));
     const invite = inviteSnapshot.exists() ? inviteSnapshot.data() : null;
-    if (!invite || invite.active !== true || invite.role !== "admin" || invite.studentNumber !== number) {
+    if (!invite || invite.active !== true || !["admin", "author"].includes(invite.role) || invite.studentNumber !== number) {
       throw new Error("管理者としての登録権限を確認できませんでした。");
     }
     return result.user;
@@ -141,7 +145,7 @@ export async function beginAdminRegistration({ studentNumber, registrationCode }
 export async function loginAccount({ studentNumber, password }) {
   const number = cleanStudentNumber(studentNumber);
   try {
-    const data = await callApi("authenticateStudyApp", { studentNumber: number, password });
+    const data = await callApi("authenticateStudyApp", { studentNumber: number, password }, { timeout: 65_000 });
     if (!data?.token) throw new Error("ログイン情報を確認できませんでした。");
     return (await signInWithCustomToken(auth, data.token)).user;
   } catch (error) {
@@ -194,7 +198,7 @@ async function createProfile({ studentNumber, inviteCode = "", role }) {
       const inviteSnapshot = await transaction.get(inviteRef);
       if (!inviteSnapshot.exists()) throw new Error("登録権限が無効か、すでに使用されています。");
       invite = inviteSnapshot.data();
-      if (invite.active !== true || invite.role !== "admin" || invite.studentNumber !== number) {
+      if (invite.active !== true || !["admin", "author"].includes(invite.role) || invite.studentNumber !== number) {
         throw new Error("管理者としての登録権限を確認できませんでした。");
       }
     }
@@ -202,7 +206,7 @@ async function createProfile({ studentNumber, inviteCode = "", role }) {
     const common = {
       studentNumber: number,
       name: String(invite?.name || "学生"),
-      role,
+      role: invite?.role || role,
       active: true,
       createdAt: serverTimestamp(),
       verifiedAt: serverTimestamp(),
