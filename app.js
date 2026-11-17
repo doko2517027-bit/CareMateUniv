@@ -19,7 +19,7 @@ import {
   resendVerification,
 } from "./auth.js?v=15";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=17";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=37";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=38";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { watchPendingPublications } from "./store.js?v=30";
@@ -165,9 +165,9 @@ function openDialog(html) {
 }
 function closeDialog() { if ($("#appDialog").open) $("#appDialog").close(); }
 function show(html) { return new Promise((resolve) => { openDialog(html); const finish = () => { $("#appDialog").removeEventListener("close", finish); resolve(); }; $("#appDialog").addEventListener("close", finish); }); }
-function confirmDialog(message) {
+function confirmDialog(message, confirmLabel = "続ける") {
   return new Promise((resolve) => {
-    const dialog = openDialog(`<h2>確認</h2><p>${escapeHtml(message)}</p><div class="inline-actions"><button id="dialogCancel" class="secondary-button" type="button">キャンセル</button><button id="dialogConfirm" class="primary-button" type="button">続ける</button></div>`);
+    const dialog = openDialog(`<h2>確認</h2><p>${escapeHtml(message)}</p><div class="inline-actions"><button id="dialogCancel" class="secondary-button" type="button">キャンセル</button><button id="dialogConfirm" class="primary-button" type="button">${escapeHtml(confirmLabel)}</button></div>`);
     const done = (value) => { dialog.onclose = null; closeDialog(); resolve(value); };
     $("#dialogCancel").onclick = () => done(false); $("#dialogConfirm").onclick = () => done(true); dialog.onclose = () => resolve(false);
   });
@@ -258,6 +258,7 @@ function fillQuestionEditor(item = {}, index = 0, originalIndex = "") {
   const answers = Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
   return `<article class="question-editor" data-kind="fill" data-question-id="${escapeHtml(item.id || crypto.randomUUID())}" data-original-index="${originalIndex}">
     <div class="editor-section-heading"><strong>穴埋め問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
+    <label>公開設定<select data-role="question-publication"><option value="public">公開</option><option value="private" ${item.published === false ? "selected" : ""}>非公開</option></select></label>
     <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
     ${questionImageEditor(item)}
     <label>模範解答の表示<input data-role="display-answer" value="${escapeHtml(item.answer || answers.join("・"))}" placeholder="例：心拍出量"></label>
@@ -277,6 +278,7 @@ function quizQuestionEditor(item = {}, index = 0, originalIndex = "") {
   const correct = Array.isArray(item.answers) && item.answers.length ? item.answers.map(Number) : [Number(item.answer) || 0];
   return `<article class="question-editor" data-kind="quiz" data-question-id="${escapeHtml(item.id || crypto.randomUUID())}" data-original-index="${originalIndex}">
     <div class="editor-section-heading"><strong>選択問題 ${index + 1}</strong><button class="danger-button compact-button" data-action="delete-question" type="button">削除</button></div>
+    <label>公開設定<select data-role="question-publication"><option value="public">公開</option><option value="private" ${item.published === false ? "selected" : ""}>非公開</option></select></label>
     <label>問題文<textarea data-role="question" rows="3" placeholder="問題文を入力してください">${escapeHtml(item.question || "")}</textarea></label>
     ${questionImageEditor(item)}
     <div class="answer-editor" data-role="quiz-choices"><div class="editor-section-heading"><strong>選択肢・答え</strong><small>正解を複数選択できます</small></div>${choices.map((choice, choiceIndex) => quizChoiceEditor(choice, correct.includes(choiceIndex), choiceIndex)).join("")}</div>
@@ -338,7 +340,7 @@ function unitEditor(unit = {}, context, target = null) {
     const publicationLabel = context.profile?.studentNumber === "2510044" || context.profile?.role === "staff" ? "学生に公開" : "公開を申請";
     const saveLabel = unit.published || author ? publicationLabel : "編集内容を保存";
     const publishButton = unit.published || author ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">${publicationLabel}</button>`;
-    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><textarea id="fullJson" class="code-area" rows="8" placeholder='{
+    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">非公開にする</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><textarea id="fullJson" class="code-area" rows="8" placeholder='{
   "summary": [
     "呼吸器系は酸素を取り込み、二酸化炭素を排出する。"
   ],
@@ -414,7 +416,7 @@ function unitEditor(unit = {}, context, target = null) {
     $("#unitCancel").onclick = () => done(null);
     form.querySelectorAll("[data-submit-action]").forEach((button) => button.addEventListener("click", () => { submitAction = button.dataset.submitAction; }));
     $("#unpublishQuestions")?.addEventListener("click", async () => {
-      if (await context.confirm("この問題の学生への公開を停止しますか？")) done({ _action: "unpublish" });
+      if (await context.confirm("この単元を非公開にしますか？")) done({ _action: "unpublish" });
     });
     $("#addFillQuestion").onclick = () => { fillList.insertAdjacentHTML("beforeend", fillQuestionEditor({}, fillList.children.length)); updateLabels(); };
     $("#addQuizQuestion").onclick = () => { quizList.insertAdjacentHTML("beforeend", quizQuestionEditor({}, quizList.children.length)); updateLabels(); };
@@ -471,13 +473,13 @@ function unitEditor(unit = {}, context, target = null) {
       event.preventDefault();
       const fill_blank = [...fillList.querySelectorAll('[data-kind="fill"]')].map((card) => {
         const answers = [...card.querySelectorAll('[data-role="fill-answer"]')].map((input) => input.value.trim()).filter(Boolean);
-        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, published: card.querySelector('[data-role="question-publication"]').value === "public", question: card.querySelector('[data-role="question"]').value.trim(), answer: card.querySelector('[data-role="display-answer"]').value.trim() || answers.join("・"), answers, explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
       });
       const quiz = [...quizList.querySelectorAll('[data-kind="quiz"]')].map((card) => {
         const rows = [...card.querySelectorAll(".quiz-choice-row")];
         const choices = rows.map((row) => row.querySelector('[data-role="quiz-choice"]').value.trim());
         const answers = rows.map((row, index) => row.querySelector('[data-role="quiz-correct"]').checked ? index : -1).filter((index) => index >= 0);
-        return { id: card.dataset.questionId, question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
+        return { id: card.dataset.questionId, published: card.querySelector('[data-role="question-publication"]').value === "public", question: card.querySelector('[data-role="question"]').value.trim(), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: card.querySelector('[data-role="explanation"]').value.trim(), source: card.querySelector('[data-role="source"]').value.trim(), ...readQuestionImage(card) };
       });
       if (fill_blank.some((item) => !item.question || !item.answers.length)) { status($("#unitStatus"), "穴埋め問題の問題文と解答を入力してください。", true); return; }
       if (quiz.some((item) => !item.question || item.choices.length < 2 || item.choices.some((choice) => !choice) || !Array.isArray(item.answers) && !Number.isInteger(item.answer))) { status($("#unitStatus"), "選択問題の問題文・2つ以上の選択肢・正解を入力してください。", true); return; }

@@ -33,7 +33,7 @@ import {
   listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=29";
+} from "./store.js?v=31";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -219,8 +219,13 @@ async function renderPublicationQueue(root, context, publicationId = "") {
       button.className = approved ? "primary-button" : "secondary-button";
       button.textContent = label;
       button.onclick = async () => {
+        if (approved && !await context.confirm(
+          "公開前に、問題文・解説・画像に無断コピーや無断転載がないこと、出典と利用許可を確認したことをお確かめください。内容を確認したうえで公開しますか？",
+          "公開",
+        )) return;
+        button.disabled = true;
         try { await reviewPublication(request, approved); await renderPublicationQueue(root, context); }
-        catch (error) { context.toast(error.message, true); }
+        catch (error) { context.toast(error.message, true); button.disabled = false; }
       };
       panel.append(button);
     }

@@ -106,11 +106,11 @@ export function normalizeUnitData(input = {}) {
     const fallback = Math.max(0, Number(item.answer) || 0);
     const answers = (Array.isArray(item.answers) && item.answers.length ? item.answers : [fallback])
       .map(Number).filter((value, index, values) => Number.isInteger(value) && value >= 0 && value < choices.length && values.indexOf(value) === index);
-    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), choices, answer: answers[0] ?? 0, ...(answers.length > 1 ? { answers } : {}), explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...(item.published === false ? { published: false } : {}), ...imageFields(item) };
   }).filter((item) => item.question && item.choices.length >= 2 && item.answer < item.choices.length) : [];
   const fillBlank = Array.isArray(input.fill_blank) ? input.fill_blank.map((item) => {
     const answers = Array.isArray(item.answers) ? item.answers.map((answer) => safeText(answer, 300)).filter(Boolean) : cleanLines(item.answer);
-    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...imageFields(item) };
+    return { id: safeText(item.id, 80) || crypto.randomUUID(), question: safeText(item.question, 1000), answer: safeText(item.answer, 500) || answers.join("・"), answers, explanation: safeText(item.explanation, 2000), source: safeText(item.source, 1000), ...(item.published === false ? { published: false } : {}), ...imageFields(item) };
   }).filter((item) => item.question && item.answers.length) : [];
   return {
     summary: Array.isArray(input.summary) ? input.summary.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.summary),
@@ -150,6 +150,13 @@ function editableUnitPayload({ name, range = "", order = 0, ...content }) {
   };
 }
 
+function publicUnitPayload(draft) {
+  return {
+    ...draft,
+    quiz: draft.quiz.filter(question => question.published !== false),
+    fill_blank: draft.fill_blank.filter(question => question.published !== false),
+  };
+}
 function publicationSnapshot(unit) {
   return Object.fromEntries(["name", "range", "order", "summary", "important_points", "quiz", "fill_blank"]
     .filter(key => unit[key] !== undefined).map(key => [key, unit[key]]));
@@ -210,7 +217,8 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
   const currentSnapshot = await getDocFromServer(unitRef);
   if (!currentSnapshot.exists()) throw new Error("公開する単元が見つかりません。");
   const current = currentSnapshot.data();
-  const published = editableUnitPayload(input);
+  const draft = editableUnitPayload(input);
+  const published = publicUnitPayload(draft);
   if (!published.name) throw new Error("単元名を入力してください。");
   const maps = {
     quiz: questionIndexMap(current.quiz || [], published.quiz || []),
@@ -229,7 +237,7 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
     updatedAt: serverTimestamp(),
   }, { merge: true });
   batch.set(doc(db, COLLECTIONS.subjects, subjectId, "units", id, "drafts", "edited"), {
-    ...published,
+    ...draft,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || "",
   });
@@ -242,7 +250,8 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
     after: publicationSnapshot(published),
   });
   await batch.commit();
-  const changed = ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
+  const hasPrivateQuestions = ["quiz", "fill_blank"].some(type => draft[type].some(question => question.published === false));
+  const changed = !hasPrivateQuestions && ["quiz", "fill_blank"].some((type) => maps[type].some((nextIndex, oldIndex) => nextIndex !== oldIndex));
   if (changed) {
     await callProtectedApi("cleanupStudyAppQuestionDeletion", {
       subjectId,
@@ -255,12 +264,17 @@ export async function publishUnitDraft(subjectId, { id, _questionMaps: _unused, 
 }
 
 export async function requestUnitPublication(subjectId, unitId, input) {
-  const payload = editableUnitPayload(input);
-  if (!payload.name || !(payload.quiz.length || payload.fill_blank.length)) {
+  const draft = editableUnitPayload(input);
+  const payload = publicUnitPayload(draft);
+  if (!unitId && (draft.quiz.length !== payload.quiz.length || draft.fill_blank.length !== payload.fill_blank.length)) {
+    throw new Error("新規単元の申請では全問題を公開にしてください。問題ごとの非公開設定は単元登録後に変更できます。");
+  }
+  if (!draft.name || !(draft.quiz.length || draft.fill_blank.length)) {
     throw new Error("単元名と問題を入力してください。");
   }
   const current = unitId ? await getUnit(subjectId, unitId) : null;
   const before = current && (current.publishedAt || current.published) ? publicationSnapshot(current) : null;
+  if (unitId) await saveUnitDraft(subjectId, { ...draft, id: unitId });
   await addDoc(collection(db, "studyAppPublicationRequests"), {
     authorUid: auth.currentUser.uid, subjectId, unitId, payload,
     before,
