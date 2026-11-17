@@ -119,3 +119,5 @@ html.dark .panel,html.dark .card,html.dark .auth-card,html.dark .message-card,ht
 
 .back-to-top{position:fixed;z-index:34;left:max(16px,env(safe-area-inset-left));bottom:calc(154px + env(safe-area-inset-bottom));box-shadow:0 4px 18px #0003}
 .back-to-top[hidden]{display:none}
+
+.catalog-drag-handle{touch-action:none;user-select:none;cursor:grab}.catalog-dragging{outline:2px solid var(--primary)}.catalog-dragging .catalog-drag-handle{cursor:grabbing}

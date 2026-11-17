@@ -45,9 +45,24 @@ async function readDocs(reference, forceServer = false) {
   return forceServer ? getDocsFromServer(reference) : getDocs(reference);
 }
 
+function compareCatalogOrder(a, b) {
+  return (a.catalogOrder ?? Infinity) - (b.catalogOrder ?? Infinity);
+}
+
+export async function saveCatalogOrder(kind, ids, subjectId) {
+  if (kind === "units") {
+    await updateDoc(doc(db, COLLECTIONS.subjects, subjectId), { catalogUnitOrder: ids });
+    return;
+  }
+  const reference = collection(db, COLLECTIONS[kind]);
+  const batch = writeBatch(db);
+  ids.forEach((id, index) => batch.update(doc(reference, id), { catalogOrder: index }));
+  await batch.commit();
+}
+
 export async function listCategories({ forceServer = false } = {}) {
   const snapshots = await readDocs(query(collection(db, COLLECTIONS.categories), orderBy("order", "asc")), forceServer);
-  return snapshots.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return snapshots.docs.map((item) => ({ id: item.id, ...item.data() })).sort(compareCatalogOrder);
 }
 export async function saveCategory({ id, name, order = 0 }) {
   const data = { name: safeText(name, 80), order: Number(order) || 0, updatedAt: serverTimestamp() };
@@ -61,7 +76,7 @@ export async function listSubjects({ publishedOnly = false, forceServer = false 
   const constraints = publishedOnly ? [where("published", "==", true)] : [];
   const snapshots = await readDocs(query(collection(db, COLLECTIONS.subjects), ...constraints), forceServer);
   const items = snapshots.docs.map((item) => ({ id: item.id, ...item.data() }));
-  return items.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
+  return items.sort((a, b) => compareCatalogOrder(a, b) || (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
 }
 export async function saveSubject({ id, name, categoryId, published = false, order = 0 }) {
   const data = { name: safeText(name, 100), categoryId: safeText(categoryId, 100), published: published === true, order: Number(order) || 0, updatedAt: serverTimestamp() };
@@ -73,10 +88,15 @@ export async function removeSubject(id) { await deleteDoc(doc(db, COLLECTIONS.su
 
 export async function listUnits(subjectId, { publishedOnly = false, forceServer = false } = {}) {
   const unitsRef = collection(db, COLLECTIONS.subjects, subjectId, "units");
-  const snapshots = await readDocs(publishedOnly ? query(unitsRef, where("published", "==", true)) : unitsRef, forceServer);
+  const subjectRef = doc(db, COLLECTIONS.subjects, subjectId);
+  const [snapshots, subject] = await Promise.all([
+    readDocs(publishedOnly ? query(unitsRef, where("published", "==", true)) : unitsRef, forceServer),
+    forceServer ? getDocFromServer(subjectRef) : getDoc(subjectRef),
+  ]);
+  const ranks = new Map((subject.data()?.catalogUnitOrder || []).map((id, index) => [id, index]));
   return snapshots.docs.map((item) => ({ id: item.id, ...item.data() }))
     .filter((item) => !publishedOnly || item.published === true)
-    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
+    .sort((a, b) => (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity) || (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name), "ja"));
 }
 export async function getUnit(subjectId, unitId) {
   const snapshot = await getDocFromServer(doc(db, COLLECTIONS.subjects, subjectId, "units", unitId));
