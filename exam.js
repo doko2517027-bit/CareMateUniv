@@ -221,28 +221,44 @@ function renderQuestionList(root, context, subject, unit, expandedIndices = [0])
   });
 }
 
-async function renderQuestions(root, context, subject, unit, { forceNew = false } = {}) {
+export function startReview(root, context, subject, units, onBack) {
+  return renderQuestions(root, context, subject, units[0], { review: { units, onBack } });
+}
+
+async function renderQuestions(root, context, subject, unit, { forceNew = false, review = null } = {}) {
   stopStudyUnitWatch();
-  const fresh = await getUnit(subject.id, unit.id);
-  if (!fresh?.published) throw new Error("この単元は現在利用できません。");
-  unit = fresh;
-  const publishedItems = allQuestions(unit);
-  if (!publishedItems.length) { context.toast("解答できる問題がまだありません。"); return; }
-  const oldProgress = await getProgress(auth.currentUser.uid, subject.id, unit.id);
-  const questionStats = structuredClone(oldProgress.questionStats || {});
-  let attemptCount = Number(oldProgress.attemptCount || 0);
-  let correctCount = Number(oldProgress.correctCount || 0);
+  const uid = auth.currentUser.uid;
+  const freshUnits = (await Promise.all((review?.units || [unit]).map(
+    item => getUnit(subject.id, item.id),
+  ))).filter(item => item?.published);
+  if (!freshUnits.length) throw new Error("この単元は現在利用できません。");
+  unit = freshUnits[0];
+  const progressByUnit = new Map(await Promise.all(freshUnits.map(async item => [
+    item.id, await getProgress(uid, subject.id, item.id),
+  ])));
+  const oldProgress = progressByUnit.get(unit.id);
+  const publishedItems = review ? freshUnits.flatMap(item => allQuestions(item).flatMap(question => {
+    const stats = progressByUnit.get(item.id).questionStats?.[`${question.type}:${question.sourceIndex}`];
+    const key = `${item.id}/${stableQuestionKey(question)}`;
+    if (review.keys ? !review.keys.has(key) : !stats?.attempts || Math.round(100 * stats.correct / stats.attempts) >= 60) return [];
+    return [{ ...question, id: key, reportId: question.id, reviewUnit: item }];
+  })) : allQuestions(unit);
+  if (!publishedItems.length) {
+    context.toast(review ? "この範囲に要復習の問題はありません。" : "解答できる問題がまだありません。");
+    return;
+  }
+  const goBack = review?.onBack || (() => renderSubject(root, context, subject, null, unit.id));
   let studySession = null;
   let items = [];
   const savedSession = oldProgress.studySession && typeof oldProgress.studySession === "object"
     ? oldProgress.studySession : null;
-  if (!forceNew && savedSession?.active === true && Array.isArray(savedSession.order)) {
+  if (!review && !forceNew && savedSession?.active === true && Array.isArray(savedSession.order)) {
     const restored = restoreStudySession(publishedItems, savedSession);
     if (restored.items.length) {
       const resume = await context.confirm(`${restored.session.position + 1}問目から続けますか？`);
       if (resume) ({ items, session: studySession } = restored);
     }
-  } else if (!forceNew && Number(oldProgress.position) > 0 && Number(oldProgress.position) < publishedItems.length) {
+  } else if (!review && !forceNew && Number(oldProgress.position) > 0 && Number(oldProgress.position) < publishedItems.length) {
     // Existing learners created before session persistence keep their original
     // order for the current attempt. Only a new attempt is shuffled.
     const legacy = createStudySession(publishedItems, Math.random, { shuffled: false });
@@ -255,22 +271,23 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false 
   }
   let position = studySession.position;
   const attemptResults = { ...studySession.results };
-  await saveProgress(auth.currentUser.uid, subject.id, unit.id, {
+  if (!review) await saveProgress(uid, subject.id, unit.id, {
     position,
     total: items.length,
     studySession,
   });
   const show = () => {
     const item = items[position];
+    const itemUnit = item.reviewUnit || unit;
     const isQuiz = item.type === "quiz";
     const correctAnswers = isQuiz ? (Array.isArray(item.answers) && item.answers.length ? item.answers.map(Number) : [Number(item.answer) || 0]) : [];
     const isMultiple = isQuiz && correctAnswers.length > 1;
     const fillAnswers = !isQuiz && Array.isArray(item.answers) && item.answers.length ? item.answers : [item.answer || ""];
     let locked = false;
     const progressValue = Math.round(((position + 1) / items.length) * 100);
-    root.innerHTML = `${pageHeader(subject, unit, "問題演習")}${progressBar(progressValue, `${position + 1}問目 / ${items.length}問`, "test-progress")}<section class="panel question-box test-focus-card"><div class="test-context-line"><b>${escapeHtml(subject.name)}</b><span>›</span><span>${escapeHtml(unit.name)}</span></div><div class="test-question-heading"><span class="test-content-label">問題</span><div class="test-question-number">${position + 1} / ${items.length}</div></div><h2 class="question-text test-question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">選択肢</span><small>${isMultiple ? "当てはまるものをすべて選択" : "1つ選択"}</small></div><div class="choice-list test-choice-list">${item.choices.map((choice, index) => `<button class="choice-button test-choice" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}</b><span>${escapeHtml(choice)}</span></button>`).join("")}</div></section>${isMultiple ? `<button id="answerButton" class="primary-button full-action" type="button" disabled>選択した答えを判定</button>` : ""}` : `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">解答</span><small>${fillAnswers.length > 1 ? `${fillAnswers.length}か所すべて入力` : "答えを入力"}</small></div><div class="fill-answer-list test-fill-inputs">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div></section><button id="answerButton" class="primary-button full-action" type="button">答え合わせ</button>`}<div id="resultArea"></div><button id="questionReportButton" class="test-report-link" type="button">違います</button></section>`;
-    bindBack(root, context, subject);
-    root.querySelector("#questionReportButton").addEventListener("click", () => showReport(context, subject, unit, item));
+    root.innerHTML = `${pageHeader(subject, itemUnit, review ? "要復習" : "問題演習")}${progressBar(progressValue, `${position + 1}問目 / ${items.length}問`, "test-progress")}<section class="panel question-box test-focus-card"><div class="test-context-line"><b>${escapeHtml(subject.name)}</b><span>›</span><span>${escapeHtml(itemUnit.name)}</span></div><div class="test-question-heading"><span class="test-content-label">問題</span><div class="test-question-number">${position + 1} / ${items.length}</div></div><h2 class="question-text test-question-text">${escapeHtml(item.question)}</h2>${renderQuestionImage(item)}${isQuiz ? `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">選択肢</span><small>${isMultiple ? "当てはまるものをすべて選択" : "1つ選択"}</small></div><div class="choice-list test-choice-list">${item.choices.map((choice, index) => `<button class="choice-button test-choice" data-choice="${index}" type="button" aria-pressed="false"><b>${index + 1}</b><span>${escapeHtml(choice)}</span></button>`).join("")}</div></section>${isMultiple ? `<button id="answerButton" class="primary-button full-action" type="button" disabled>選択した答えを判定</button>` : ""}` : `<section class="test-content-section"><div class="test-content-section-heading"><span class="test-content-label">解答</span><small>${fillAnswers.length > 1 ? `${fillAnswers.length}か所すべて入力` : "答えを入力"}</small></div><div class="fill-answer-list test-fill-inputs">${fillAnswers.map((_, index) => `<label class="field-label">解答 ${index + 1}<input class="field fill-answer-input" autocomplete="off"></label>`).join("")}</div></section><button id="answerButton" class="primary-button full-action" type="button">答え合わせ</button>`}<div id="resultArea"></div><button id="questionReportButton" class="test-report-link" type="button">違います</button></section>`;
+    root.querySelector(".back-button").onclick = goBack;
+    root.querySelector("#questionReportButton").addEventListener("click", () => showReport(context, subject, itemUnit, { ...item, id: review ? item.reportId : item.id }));
     const submit = async (given) => {
       if (locked) return;
       locked = true;
@@ -282,14 +299,16 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false 
         : normalizedGiven.length === normalizedCorrect.length && normalizedCorrect.every((value) => normalizedGiven.includes(value));
       const sessionKey = item.sessionKey || stableQuestionKey(item);
       const questionKey = `${item.type}:${item.sourceIndex}`;
+      const progress = progressByUnit.get(itemUnit.id);
+      const questionStats = progress.questionStats || {};
       const previous = questionStats[questionKey] || {};
       const nextQuestionStats = structuredClone(questionStats);
       nextQuestionStats[questionKey] = {
         attempts: Number(previous.attempts || 0) + 1,
         correct: Number(previous.correct || 0) + (accepted ? 1 : 0),
       };
-      const nextAttemptCount = attemptCount + 1;
-      const nextCorrectCount = correctCount + (accepted ? 1 : 0);
+      const nextAttemptCount = Number(progress.attemptCount || 0) + 1;
+      const nextCorrectCount = Number(progress.correctCount || 0) + (accepted ? 1 : 0);
       const nextResults = { ...attemptResults, [sessionKey]: accepted };
       const nextPosition = position + 1 < items.length ? position + 1 : 0;
       const nextSession = {
@@ -299,25 +318,24 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false 
         results: nextResults,
       };
       try {
-        await saveProgress(auth.currentUser.uid, subject.id, unit.id, {
+        await saveProgress(uid, subject.id, itemUnit.id, {
           questionStats: nextQuestionStats,
           attemptCount: nextAttemptCount,
           correctCount: nextCorrectCount,
-          position: nextPosition,
-          answered: Math.min(items.length, Object.keys(nextQuestionStats).length),
-          total: items.length,
-          lastScore: Object.values(nextResults).filter(Boolean).length,
-          studySession: nextSession,
+          answered: Math.min(allQuestions(itemUnit).length, Object.keys(nextQuestionStats).length),
+          total: allQuestions(itemUnit).length,
+          ...(review ? {} : {
+            position: nextPosition,
+            lastScore: Object.values(nextResults).filter(Boolean).length,
+            studySession: nextSession,
+          }),
         });
       } catch (error) {
         locked = false;
         context.toast(error.message || "学習結果を保存できませんでした。", true);
         return;
       }
-      Object.keys(questionStats).forEach((key) => delete questionStats[key]);
-      Object.assign(questionStats, nextQuestionStats);
-      attemptCount = nextAttemptCount;
-      correctCount = nextCorrectCount;
+      Object.assign(progress, { questionStats: nextQuestionStats, attemptCount: nextAttemptCount, correctCount: nextCorrectCount });
       Object.assign(attemptResults, nextResults);
       studySession = nextSession;
       if (isQuiz) root.querySelectorAll(".choice-button").forEach((button) => { button.disabled = true; const value = Number(button.dataset.choice); if (correctAnswers.includes(value)) button.classList.add("correct"); else if (selected.includes(value)) button.classList.add("wrong"); });
@@ -344,12 +362,16 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false 
   const renderResult = () => {
     stopStudyUnitWatch();
     const correct = Object.values(attemptResults).filter(Boolean).length;
-    root.innerHTML = `${pageHeader(subject, unit, "結果")}<section class="panel message-card"><span class="message-icon">✓</span><h2>${correct} / ${items.length}問 正解</h2><p>今回の問題演習が完了しました。</p><button id="retryButton" class="primary-button" type="button">もう一度解く</button></section>`;
-    bindBack(root, context, subject);
-    root.querySelector("#retryButton").addEventListener("click", () => renderQuestions(root, context, subject, unit, { forceNew: true }));
+    root.innerHTML = `${pageHeader(subject, unit, "結果")}<section class="panel message-card"><span class="message-icon">✓</span><h2>${correct} / ${items.length}問 正解</h2><p>今回の問題演習が完了しました。</p><button id="retryButton" class="primary-button" type="button">もう一度解く</button><button id="resultBack" class="secondary-button" type="button">一覧に戻る</button></section>`;
+    root.querySelector(".back-button").onclick = goBack;
+    root.querySelector("#resultBack").onclick = goBack;
+    root.querySelector("#retryButton").onclick = () => renderQuestions(root, context, subject, unit, {
+      forceNew: true,
+      review: review ? { ...review, keys: new Set(publishedItems.map(item => item.id)) } : null,
+    }).catch(error => context.toast(error.message, true));
   };
   show();
-  watchDisplayedUnit(root, context, subject, unit, (latest) => {
+  if (!review) watchDisplayedUnit(root, context, subject, unit, (latest) => {
     // All following questions use the fresh published source. The already
     // displayed question is left untouched until the student opts to reload.
     unit = latest;

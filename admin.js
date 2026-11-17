@@ -1,3 +1,4 @@
+import { startReview } from "./exam.js?v=18";
 import { auth } from "./firebase.js?v=8";
 import {
   applyQuestionReportCorrection,
@@ -526,6 +527,43 @@ async function renderAnalytics(root, context, options = {}) {
     const switchHtml = personal ? `<div class="analysis-view-switch" role="tablist" aria-label="分析表示"><button class="active" data-analysis-view="overall" type="button">全体</button><button data-analysis-view="subjects" type="button">科目ごと</button><button data-analysis-view="units" type="button">単元ごと</button></div>` : "";
     root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}${switchHtml}<div id="analyticsView">${overallHtml}</div>`;
     if (personal) {
+      const reviewRows = rows.filter(item => item.rate < 60);
+      if (reviewRows.length) {
+        root.querySelector(".analysis-view-switch").insertAdjacentHTML("beforebegin", `<form id="reviewForm" class="panel form-stack"><h2>要復習</h2><p>正答率が60%未満の問題をシャッフルして解きます。</p><div class="split"><label>科目<select name="subject">${subjects.filter(subject => reviewRows.some(row => row.subjectId === subject.id)).map(subject => `<option value="${escapeHtml(subject.id)}">${escapeHtml(subject.name)}</option>`).join("")}</select></label><label>単元<select name="unit"></select></label></div><button class="primary-button" type="submit">要復習の問題を解く</button></form>`);
+        const form = root.querySelector("#reviewForm");
+        const subjectSelect = form.elements.namedItem("subject");
+        const unitSelect = form.elements.namedItem("unit");
+        const updateUnits = () => {
+          const subjectId = subjectSelect.value;
+          unitSelect.replaceChildren(new Option("科目全体", ""));
+          for (const unit of unitsBySubject.get(subjectId) || []) {
+            if (reviewRows.some(row => row.subjectId === subjectId && row.unitId === unit.id)) {
+              unitSelect.add(new Option(unit.name, unit.id));
+            }
+          }
+        };
+        subjectSelect.onchange = updateUnits;
+        updateUnits();
+        form.onsubmit = async event => {
+          event.preventDefault();
+          const subject = subjectMap.get(subjectSelect.value);
+          const units = (unitsBySubject.get(subject.id) || []).filter(unit => unitSelect.value
+            ? unit.id === unitSelect.value
+            : reviewRows.some(row => row.subjectId === subject.id && row.unitId === unit.id));
+          const button = form.querySelector("button");
+          button.disabled = true;
+          try {
+            await startReview(root, context, subject, units, async () => {
+              await renderPersonalAnalytics(root, context);
+              root.querySelector("#reviewForm")?.scrollIntoView({ block: "start" });
+            });
+          } catch (error) {
+            context.toast(error.message || "復習を始められませんでした。", true);
+          } finally {
+            button.disabled = false;
+          }
+        };
+      }
       const views = { overall: overallHtml, subjects: subjectHtml, units: unitHtml };
       root.querySelectorAll("[data-analysis-view]").forEach((button) => button.addEventListener("click", () => {
         root.querySelectorAll("[data-analysis-view]").forEach((item) => item.classList.toggle("active", item === button));
