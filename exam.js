@@ -385,4 +385,4 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false,
     });
   });
 }
-import { addListSearch } from "./test-search.js?v=2";
+import { addListSearch } from "./test-search.js?v=3";

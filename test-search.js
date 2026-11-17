@@ -5,6 +5,7 @@ export function addListSearch(list, label, extraText = []) {
   field.textContent = `${label}を検索`;
   const input = document.createElement("input");
   input.type = "search";
+  input.placeholder = "検索";
   field.append(input);
   const message = document.createElement("p");
   message.className = "empty";
