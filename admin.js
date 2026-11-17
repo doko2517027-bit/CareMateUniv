@@ -33,7 +33,7 @@ import {
   listPublicationHistory,
   listOwnPublicationRequests,
   reviewPublication,
-} from "./store.js?v=31";
+} from "./store.js?v=32";
 import { renderAnnouncementManager } from "./notices.js?v=4";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

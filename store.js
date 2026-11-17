@@ -117,7 +117,6 @@ export function normalizeUnitData(input = {}) {
     important_points: Array.isArray(input.important_points) ? input.important_points.map((item) => safeText(item, 1000)).filter(Boolean) : cleanLines(input.important_points),
     fill_blank: fillBlank,
     quiz,
-    today_question: null,
   };
 }
 export async function saveUnit(subjectId, { id, name, range = "", published = false, order = 0, _questionMaps = null, ...content }) {
