@@ -37,6 +37,18 @@ import {
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+const backToTop = $("#backToTop");
+function updateBackToTop() {
+  backToTop.hidden = window.scrollY < 160;
+}
+window.addEventListener("scroll", updateBackToTop, { passive: true });
+window.addEventListener("pageshow", updateBackToTop);
+backToTop.addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "instant" });
+  $("#pageTitle").focus({ preventScroll: true });
+});
+updateBackToTop();
+
 const screens = ["#authScreen", "#verifyScreen", "#activationScreen", "#adminPasswordScreen", "#appShell"];
 let profile = null;
 let currentPage = "test";

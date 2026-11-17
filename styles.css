@@ -116,3 +116,6 @@ html.dark .panel,html.dark .card,html.dark .auth-card,html.dark .message-card,ht
 .admin-editor .question-editor-help{position:fixed;z-index:35;right:max(16px,env(safe-area-inset-right));bottom:calc(154px + env(safe-area-inset-bottom));width:46px;height:46px;min-width:0;min-height:0;padding:0;display:grid;place-items:center;border-radius:50%;font-size:23px;line-height:1;box-shadow:0 4px 18px #0003}
 .admin-editor .question-editor-help.in-dialog{bottom:calc(10dvh + 10px);right:max(20px,calc((100vw - 520px)/2))}
 .question-editor-help:focus-visible{outline:3px solid var(--primary);outline-offset:3px}
+
+.back-to-top{position:fixed;z-index:34;left:max(16px,env(safe-area-inset-left));bottom:calc(154px + env(safe-area-inset-bottom));box-shadow:0 4px 18px #0003}
+.back-to-top[hidden]{display:none}
