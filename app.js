@@ -326,7 +326,53 @@ function unitEditor(unit = {}, context, target = null) {
     const publicationLabel = context.profile?.studentNumber === "2510044" || context.profile?.role === "staff" ? "学生に公開" : "公開を申請";
     const saveLabel = unit.published || author ? publicationLabel : "編集内容を保存";
     const publishButton = unit.published || author ? "" : `<button id="publishQuestions" class="primary-button" type="submit" data-submit-action="publish">${publicationLabel}</button>`;
-    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><textarea id="fullJson" class="code-area" rows="8" placeholder='{"summary":[],"important_points":[],"fill_blank":[],"quiz":[]}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><span>${unit.published ? "保存した変更は学生側へ反映されます。" : "公開操作は画面上部の「保存・公開」から行います。"}</span></div><p id="unitStatus" class="status"></p></form>`;
+    const editorHtml = `<form id="unitEditorForm" class="form-stack admin-editor"><div class="editor-title"><div><span class="chip">問題編集</span><h2>${escapeHtml(unit.name || "単元")}</h2></div><small>「今日の一問」は使用しません</small></div><section class="editor-publish-panel" aria-labelledby="editorPublishTitle"><div><span class="chip ${unit.published ? "" : "danger"}">${unit.published ? "公開中" : "非公開"}</span><h3 id="editorPublishTitle">保存・公開</h3><p>${unit.published ? "変更を保存すると、学生側の問題・答え・解説にもすぐ反映されます。" : "下書きとして保存するか、学生へ公開できます。"}</p></div><div class="editor-publish-actions"><button id="saveEditedQuestions" class="${unit.published ? "primary-button" : "secondary-button"}" type="submit" data-submit-action="${saveAction}">${saveLabel}</button>${publishButton}${unit.published ? `<button id="unpublishQuestions" class="danger-button" type="button">公開を停止</button>` : ""}</div></section><section class="editor-block"><div class="split"><label>単元名<input name="name" value="${escapeHtml(unit.name || "")}" required maxlength="100"></label><label>表示順<small class="field-note">表示の順番の番号</small><input name="order" type="number" value="${Number(unit.order) || 0}"></label></div><label>試験範囲<input name="range" value="${escapeHtml(unit.range || "")}" maxlength="300"></label></section><details class="editor-block" open><summary>要約・重要ポイント</summary><label>要約（1行につき1項目）<textarea name="summary" rows="4">${escapeHtml((unit.summary || []).join("\n"))}</textarea></label><label>重要ポイント（1行につき1項目）<textarea name="important_points" rows="4">${escapeHtml((unit.important_points || []).join("\n"))}</textarea></label></details><details class="editor-block" open><summary>穴埋め問題 <span id="fillCount" class="chip"></span></summary><div id="fillQuestionList" class="editor-question-list"></div><button id="addFillQuestion" class="secondary-button" type="button">＋ 穴埋め問題を作成</button></details><details class="editor-block" open><summary>選択問題 <span id="quizCount" class="chip"></span></summary><div id="quizQuestionList" class="editor-question-list"></div><button id="addQuizQuestion" class="secondary-button" type="button">＋ 選択問題を作成</button></details><details class="editor-block"><summary>JSON一括読み込み</summary><textarea id="fullJson" class="code-area" rows="8" placeholder='{
+  "summary": [
+    "呼吸器系は酸素を取り込み、二酸化炭素を排出する。"
+  ],
+  "important_points": [
+    "肺胞と毛細血管の間でガス交換が行われる。"
+  ],
+  "fill_blank": [
+    {
+      "question": "肺でガス交換が行われる場所は（　）である。",
+      "answers": [
+        "肺胞"
+      ],
+      "explanation": "肺胞と毛細血管の間でガス交換が行われる。",
+      "source": "資料名・ページ番号"
+    }
+  ],
+  "quiz": [
+    {
+      "question": "肺でガス交換が行われる場所はどれか。",
+      "choices": [
+        "気管",
+        "肺胞",
+        "咽頭",
+        "喉頭"
+      ],
+      "answer": 1,
+      "explanation": "肺胞がガス交換を担う。",
+      "source": "資料名・ページ番号"
+    },
+    {
+      "question": "肺胞で交換される気体を2つ選べ。",
+      "choices": [
+        "酸素",
+        "窒素",
+        "二酸化炭素",
+        "ヘリウム"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "酸素は血液へ、二酸化炭素は肺胞へ移動する。",
+      "source": "資料名・ページ番号"
+    }
+  ]
+}'></textarea><button id="applyJson" class="secondary-button" type="button">JSONを編集画面へ反映</button></details><div class="editor-sticky-actions"><button id="unitCancel" class="secondary-button" type="button">単元一覧へ戻る</button><span>${unit.published ? "保存した変更は学生側へ反映されます。" : "公開操作は画面上部の「保存・公開」から行います。"}</span></div><p id="unitStatus" class="status"></p></form>`;
     let dialog = null;
     const host = target || $("#dialogContent");
     if (target) host.innerHTML = editorHtml;
