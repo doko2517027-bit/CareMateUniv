@@ -17,7 +17,7 @@ import {
   refreshVerification,
   registerStudentAccount,
   resendVerification,
-} from "./auth.js?v=15";
+} from "./auth.js?v=16";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=21";
 import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=44";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
@@ -33,7 +33,7 @@ import {
   evaluateSession,
   readStoredSession,
   touchStoredSession,
-} from "./session.js?v=1";
+} from "./session.js?v=2";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -91,7 +91,7 @@ async function endExpiredSession(reason) {
   sessionEnding = true;
   stopSessionGuard();
   sessionStorage.setItem(SESSION_END_MESSAGE_KEY, reason === "absolute"
-    ? "安全のためログインから12時間が経過したため、自動的にログアウトしました。もう一度ログインしてください。"
+    ? "安全のためログインから3時間が経過したため、自動的にログアウトしました。もう一度ログインしてください。"
     : "30分間操作がなかったため、自動的にログアウトしました。もう一度ログインしてください。");
   loading(true, "安全のためログアウトしています…");
   await logout().catch(() => {});

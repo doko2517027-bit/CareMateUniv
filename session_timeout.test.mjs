@@ -14,7 +14,7 @@ test("操作が30分ない場合はセッション切れになる", () => {
   assert.equal(result.reason, "idle");
 });
 
-test("操作中でもログインから12時間でセッション切れになる", () => {
+test("操作中でもログインから3時間でセッション切れになる", () => {
   const now = 1_000_000_000;
   const result = evaluateSession({ startedAt: now - SESSION_ABSOLUTE_MS, lastActivityAt: now - 10_000 }, now);
   assert.equal(result.expired, true);
