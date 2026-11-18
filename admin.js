@@ -1,5 +1,5 @@
 import { enableCatalogReorder } from "./catalog-order.js";
-import { startReview } from "./exam.js?v=20";
+import { startReview } from "./exam.js?v=21";
 import { auth } from "./firebase.js?v=8";
 import {
   applyQuestionReportCorrection,

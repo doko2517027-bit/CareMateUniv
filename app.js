@@ -18,8 +18,8 @@ import {
   registerStudentAccount,
   resendVerification,
 } from "./auth.js?v=15";
-import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=20";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=43";
+import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=21";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=44";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { watchPendingPublications } from "./store.js?v=30";
@@ -705,7 +705,7 @@ async function enterApp(foundProfile) {
   const requestedPage = new URLSearchParams(location.search).get("page");
   const canReview = requestedPage === "admin" && ["admin", "staff"].includes(profile.role);
   const publicationId = new URLSearchParams(location.search).get("publication") || "";
-  await navigate(canReview ? "admin" : requestedPage === "notices" ? "notices" : "test", canReview ? publicationId : "");
+  void navigate(canReview ? "admin" : requestedPage === "notices" ? "notices" : "test", canReview ? publicationId : "");
 }
 
 async function routeAuthenticatedUser(user) {
@@ -750,7 +750,7 @@ function bindEvents() {
     $("#toggleAdminRegistration").textContent = admin ? "学生として登録する" : "問題作成者・管理者として登録する";
     $("#registerForm").reset();
   };
-  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); try { loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); createStoredSession(user.uid); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { loading(false); } };
+  $("#loginForm").onsubmit = async (event) => { event.preventDefault(); const submit = event.submitter || $("#loginForm button[type=submit]"); if (submit?.disabled) return; if (submit) submit.disabled = true; try { status($("#authStatus")); loading(true, "ログイン中…"); const user = await loginAccount({ studentNumber: $("#loginStudentNumber").value, password: $("#loginPassword").value }); createStoredSession(user.uid); await routeAuthenticatedUser(user); } catch (error) { status($("#authStatus"), authErrorMessage(error), true); } finally { if (submit) submit.disabled = false; loading(false); } };
   $("#forgotPassword").onclick = async () => {
     const result = await formDialog("パスワードを忘れた方", [{ name: "studentNumber", label: "学籍番号", value: "", required: true }], "送信");
     if (!result) return;
@@ -809,7 +809,7 @@ function bindEvents() {
 
 async function start() {
   bindEvents();
-  $("#loginForm").addEventListener("focusin", prepareLoginConnection, { once: true });
+
   setTheme(localStorage.getItem("caremateTestTheme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
   const sessionEndMessage = sessionStorage.getItem(SESSION_END_MESSAGE_KEY) || "";
   sessionStorage.removeItem(SESSION_END_MESSAGE_KEY);
@@ -819,6 +819,7 @@ async function start() {
     if (user) await routeAuthenticatedUser(user);
     else {
       showOnly("#authScreen");
+      prepareLoginConnection();
       if (sessionEndMessage) status($("#authStatus"), sessionEndMessage, true);
     }
   } catch (error) { await logout().catch(() => {}); showOnly("#authScreen"); status($("#authStatus"), authErrorMessage(error), true); }

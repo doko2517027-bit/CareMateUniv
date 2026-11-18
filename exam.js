@@ -1,5 +1,5 @@
 import { auth } from "./firebase.js?v=8";
-import { getProgress, getUnit, listCategories, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=33";
+import { getProgress, getUnit, listCategories, listProgress, listSubjects, listUnits, reportQuestion, saveProgress, watchUnit } from "./store.js?v=33";
 import { createStudySession, restoreStudySession, stableQuestionKey } from "./shuffle.js?v=1";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -66,9 +66,10 @@ function progressBar(value, label = "進捗", className = "mini-progress") {
 }
 
 async function loadSubjectOverview(subjects) {
+  const progress = new Map((await listProgress(auth.currentUser.uid)).map(item => [`${item.subjectId}/${item.unitId}`, item]));
   const entries = await Promise.all(subjects.map(async (subject) => {
     const units = await listUnits(subject.id, { publishedOnly: true });
-    const progressItems = await Promise.all(units.map((unit) => getProgress(auth.currentUser.uid, subject.id, unit.id)));
+    const progressItems = units.map(unit => progress.get(`${subject.id}/${unit.id}`));
     const totals = units.reduce((result, unit, index) => {
       const saved = progressItems[index] || {};
       const questionTotal = allQuestions(unit).length || Number(saved.total || 0);
