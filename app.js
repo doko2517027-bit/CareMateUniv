@@ -19,7 +19,7 @@ import {
   resendVerification,
 } from "./auth.js?v=17";
 import { renderTestHome, stopStudyUnitWatch } from "./exam.js?v=21";
-import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=44";
+import { parseUnitJson, renderAdmin, renderPersonalAnalytics } from "./admin.js?v=45";
 import { renderStudentNotices, stopNoticeViewWatch } from "./notices.js?v=4";
 import { watchAnnouncementReads, watchAnnouncements, watchOpenQuestionReports } from "./store.js?v=17";
 import { watchPendingPublications } from "./store.js?v=30";

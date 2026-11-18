@@ -121,3 +121,15 @@ html.dark .panel,html.dark .card,html.dark .auth-card,html.dark .message-card,ht
 .back-to-top[hidden]{display:none}
 
 .catalog-drag-handle{touch-action:none;user-select:none;cursor:grab}.catalog-dragging{outline:2px solid var(--primary)}.catalog-dragging .catalog-drag-handle{cursor:grabbing}
+
+#adminAnalytics{display:grid;gap:14px}
+#analysisTrend{display:block;width:100%;height:180px}
+#analysisDates{display:grid;grid-template-columns:repeat(auto-fit,minmax(85px,1fr));gap:6px 12px}
+#analysisDates dt{color:var(--muted)}#analysisDates dd{margin:0}
+.analysis-breakdown-card,.analysis-question-row{min-width:0;text-align:left;overflow-wrap:anywhere}
+.analysis-breakdown-card{display:grid;gap:7px;align-content:start}
+.analysis-breakdown-card small,.analysis-question-row small{display:block;color:var(--muted)}
+#analysisRows{display:grid;gap:8px}
+.analysis-question-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;width:100%}
+.analysis-question-row strong{display:block;margin-top:3px}
+.analysis-question-row>b{color:var(--primary)}
