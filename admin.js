@@ -1,6 +1,6 @@
 import { renderAdminAnalytics } from "./admin-analytics.js?v=2";
 import { enableCatalogReorder } from "./catalog-order.js";
-import { startReview } from "./exam.js?v=21";
+import { startReview } from "./exam.js?v=22";
 import { auth } from "./firebase.js?v=8";
 import {
   applyQuestionReportCorrection,
@@ -529,14 +529,19 @@ async function renderAnalytics(root, context, options = {}) {
       const answered = Math.min(total, Math.max(Number(entry.answered || 0), Object.keys(entry.questionStats || {}).length));
       return { ...result, subject, unit, answered, total, progressRate: total ? Math.min(100, Math.round((answered / total) * 100)) : 0 };
     }));
-    const summaryHtml = `<section class="analytics-summary"><article><span>${personal ? "解答単元" : "参加学生"}</span><strong>${personal ? progress.filter((entry) => Number(entry.answered || 0) > 0 || Object.keys(entry.questionStats || {}).length).length : users.size}</strong><small>${personal ? "単元" : "人"}</small></article><article><span>${personal ? "正答率" : "全体正答率"}</span><strong>${overall}</strong><small>%</small></article><article><span>総解答数</span><strong>${totalAttempts}</strong><small>回</small></article><article><span>要復習</span><strong>${rows.filter((item) => item.rate < 60).length}</strong><small>問</small></article></section>`;
+    const reviewRows = rows.filter(row => {
+      const [kind, index] = row.questionKey.split(":");
+      const unit = unitMap.get(`${row.subjectId}/${row.unitId}`);
+      return row.rate < 60 && unit?.published === true
+        && ["quiz", "fill_blank"].includes(kind) && !!unit[kind]?.[Number(index)]?.question;
+    });
+    const summaryHtml = `<section class="analytics-summary"><article><span>${personal ? "解答単元" : "参加学生"}</span><strong>${personal ? progress.filter((entry) => Number(entry.answered || 0) > 0 || Object.keys(entry.questionStats || {}).length).length : users.size}</strong><small>${personal ? "単元" : "人"}</small></article><article><span>${personal ? "正答率" : "全体正答率"}</span><strong>${overall}</strong><small>%</small></article><article><span>総解答数</span><strong>${totalAttempts}</strong><small>回</small></article><article><span>要復習</span><strong>${reviewRows.length}</strong><small>問</small></article></section>`;
     const overallHtml = `${summaryHtml}<section class="panel"><div class="panel-header"><div><h2>形式別の正答率</h2><p>穴埋めと選択問題の理解度を比較します。</p></div></div><div class="type-chart"><div><b>穴埋め</b>${progressBar(typeRate(fillRows), "穴埋め 正答率", "analytics-bar")}<strong>${typeRate(fillRows)}%</strong></div><div><b>選択問題</b>${progressBar(typeRate(quizRows), "選択問題 正答率", "analytics-bar")}<strong>${typeRate(quizRows)}%</strong></div></div></section><section class="panel"><div class="panel-header"><div><h2>問題ごとの正答率</h2><p>正答率の低い問題から表示しています。</p></div><span class="chip">${rows.length}問</span></div>${rowHtml || `<div class="empty"><strong>問題別データはまだありません</strong><p>問題へ解答すると自動集計されます。</p></div>`}${legacySessions ? `<p class="hint">旧形式の学習記録 ${legacySessions}件は、問題単位の内訳がないため全体集計に含めていません。</p>` : ""}</section>`;
     const subjectHtml = `<section class="panel"><div class="panel-header"><div><h2>科目ごとの分析</h2><p>解答進捗と正答率を科目単位で比較します。</p></div></div><div class="analysis-card-grid">${subjectSummaries.map((item) => `<article class="analysis-progress-card"><div class="analysis-progress-heading"><div><strong>${escapeHtml(item.subject.name)}</strong><small>${item.attempts}回解答・${item.correct}回正解</small></div>${progressRing(item.rate, `${item.subject.name} 正答率`)}</div><div class="analysis-metric"><span>解答進捗</span><b>${item.progressRate}%</b></div>${progressBar(item.progressRate, `${item.subject.name} 解答進捗`)}<p>${item.answered} / ${item.total}問を解答</p></article>`).join("") || `<div class="empty">科目がまだありません。</div>`}</div></section>`;
     const unitHtml = `<section class="panel"><div class="panel-header"><div><h2>単元ごとの分析</h2><p>単元ごとの理解度と残り問題を確認します。</p></div></div><div class="analysis-unit-list">${unitSummaries.map((item) => `<article class="analysis-unit-row"><div class="analytics-copy"><span>${escapeHtml(item.subject.name)}</span><strong>${escapeHtml(item.unit.name)}</strong><small>${item.correct} / ${item.attempts}回正解・${item.answered} / ${item.total}問解答</small></div>${progressRing(item.rate, `${item.unit.name} 正答率`)}<div class="analysis-unit-bars"><div><span>解答進捗</span><b>${item.progressRate}%</b></div>${progressBar(item.progressRate, `${item.unit.name} 解答進捗`)}<div><span>正答率</span><b>${item.rate}%</b></div>${progressBar(item.rate, `${item.unit.name} 正答率`, "mini-progress accuracy")}</div></article>`).join("") || `<div class="empty">単元がまだありません。</div>`}</div></section>`;
     const switchHtml = personal ? `<div class="analysis-view-switch" role="tablist" aria-label="分析表示"><button class="active" data-analysis-view="overall" type="button">全体</button><button data-analysis-view="subjects" type="button">科目ごと</button><button data-analysis-view="units" type="button">単元ごと</button></div>` : "";
     root.innerHTML = `${options.back ? adminHeader("全体の学習分析", "学生全体の正答率と苦手傾向", options.back) : ""}${switchHtml}<div id="analyticsView">${overallHtml}</div>`;
     if (personal) {
-      const reviewRows = rows.filter(item => item.rate < 60);
       if (reviewRows.length) {
         root.querySelector(".analysis-view-switch").insertAdjacentHTML("beforebegin", `<form id="reviewForm" class="panel form-stack"><h2>要復習</h2><p>正答率が60%未満の問題をシャッフルして解きます。</p><div class="split"><label>科目<select name="subject">${subjects.filter(subject => reviewRows.some(row => row.subjectId === subject.id)).map(subject => `<option value="${escapeHtml(subject.id)}">${escapeHtml(subject.name)}</option>`).join("")}</select></label><label>単元<select name="unit"></select></label></div><button class="primary-button" type="submit">要復習の問題を解く</button></form>`);
         const form = root.querySelector("#reviewForm");
@@ -556,19 +561,22 @@ async function renderAnalytics(root, context, options = {}) {
         form.onsubmit = async event => {
           event.preventDefault();
           const subject = subjectMap.get(subjectSelect.value);
+          if (!subject) return context.toast("復習する科目を選んでください。", true);
           const units = (unitsBySubject.get(subject.id) || []).filter(unit => unitSelect.value
             ? unit.id === unitSelect.value
             : reviewRows.some(row => row.subjectId === subject.id && row.unitId === unit.id));
           const button = form.querySelector("button");
           button.disabled = true;
+          context.loading(true, "要復習の問題を読み込み中…");
           try {
             await startReview(root, context, subject, units, async () => {
               await renderPersonalAnalytics(root, context);
               root.querySelector("#reviewForm")?.scrollIntoView({ block: "start" });
-            });
+            }, reviewRows.filter(row => row.subjectId === subject.id));
           } catch (error) {
             context.toast(error.message || "復習を始められませんでした。", true);
           } finally {
+            context.loading(false);
             button.disabled = false;
           }
         };

@@ -222,8 +222,9 @@ function renderQuestionList(root, context, subject, unit, expandedIndices = [0])
   });
 }
 
-export function startReview(root, context, subject, units, onBack) {
-  return renderQuestions(root, context, subject, units[0], { review: { units, onBack } });
+export function startReview(root, context, subject, units, onBack, rows) {
+  const targets = new Set(rows.map(row => `${row.unitId}/${row.questionKey}`));
+  return renderQuestions(root, context, subject, units[0], { review: { units, onBack, targets } });
 }
 
 async function renderQuestions(root, context, subject, unit, { forceNew = false, review = null } = {}) {
@@ -239,9 +240,9 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false,
   ])));
   const oldProgress = progressByUnit.get(unit.id);
   const publishedItems = review ? freshUnits.flatMap(item => allQuestions(item).flatMap(question => {
-    const stats = progressByUnit.get(item.id).questionStats?.[`${question.type}:${question.sourceIndex}`];
+    const target = `${item.id}/${question.type}:${question.sourceIndex}`;
     const key = `${item.id}/${stableQuestionKey(question)}`;
-    if (review.keys ? !review.keys.has(key) : !stats?.attempts || Math.round(100 * stats.correct / stats.attempts) >= 60) return [];
+    if (review.keys ? !review.keys.has(key) : !review.targets.has(target)) return [];
     return [{ ...question, id: key, reportId: question.id, reviewUnit: item }];
   })) : allQuestions(unit);
   if (!publishedItems.length) {
@@ -372,6 +373,7 @@ async function renderQuestions(root, context, subject, unit, { forceNew = false,
     }).catch(error => context.toast(error.message, true));
   };
   show();
+  window.scrollTo({ top: 0, behavior: "instant" });
   if (!review) watchDisplayedUnit(root, context, subject, unit, (latest) => {
     // All following questions use the fresh published source. The already
     // displayed question is left untouched until the student opts to reload.
