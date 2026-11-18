@@ -7,14 +7,15 @@ import {
   evaluateSession,
 } from "./session.js";
 
-test("操作が30分ない場合はセッション切れになる", () => {
+test("操作が3時間ない場合はセッション切れになる", () => {
   const now = 1_000_000_000;
   const result = evaluateSession({ startedAt: now - 60_000, lastActivityAt: now - SESSION_IDLE_MS }, now);
   assert.equal(result.expired, true);
   assert.equal(result.reason, "idle");
+  assert.equal(SESSION_IDLE_MS, 3 * 60 * 60 * 1000);
 });
 
-test("操作中でもログインから3時間でセッション切れになる", () => {
+test("操作中でもログインから12時間でセッション切れになる", () => {
   const now = 1_000_000_000;
   const result = evaluateSession({ startedAt: now - SESSION_ABSOLUTE_MS, lastActivityAt: now - 10_000 }, now);
   assert.equal(result.expired, true);

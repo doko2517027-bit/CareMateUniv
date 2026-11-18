@@ -24,7 +24,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { clearStoredSession } from "./session.js?v=2";
+import { clearStoredSession } from "./session.js?v=3";
 
 const PROFILE_COLLECTION = "studyAppUsers";
 const INVITE_COLLECTION = "studyAppInvites";
