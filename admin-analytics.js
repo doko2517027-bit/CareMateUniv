@@ -3,7 +3,7 @@ const normalize = value => String(value).normalize("NFKC").toLocaleLowerCase("ja
 const dateKey = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" });
 const isQuiz = row => row.questionKey.startsWith("quiz:");
 
-export function renderAdminAnalytics(root, context, { rows, subjects, unitsBySubject, progress, escapeHtml }) {
+export function renderAdminAnalytics(root, context, { rows, subjects, unitsBySubject, progress, escapeHtml, onBack }) {
   root.innerHTML = `<section class="panel form-stack analytics-filters">
     <h2>分析範囲</h2>
     <div class="split"><label>科目<select id="analysisSubject"></select></label><label>単元<select id="analysisUnit"></select></label></div>
@@ -108,7 +108,7 @@ export function renderAdminAnalytics(root, context, { rows, subjects, unitsBySub
         card.onclick = () => {
           if (subject.value) unit.value = group.id;
           else { subject.value = group.id; updateUnits(); }
-          updateScope();
+          changeScope();
           get("analysisBreakdownTitle").scrollIntoView({ block: "center" });
         };
       }
@@ -159,8 +159,25 @@ export function renderAdminAnalytics(root, context, { rows, subjects, unitsBySub
     }
   }
   function resetPage() { page = 0; renderRows(); }
-  subject.onchange = () => { updateUnits(); updateScope(); };
-  unit.onchange = updateScope;
+  const history = [];
+  let previousScope = { subject: "", unit: "" };
+  function changeScope() {
+    history.push(previousScope);
+    previousScope = { subject: subject.value, unit: unit.value };
+    updateScope();
+  }
+  onBack?.addEventListener("click", event => {
+    const previous = history.pop();
+    if (!previous) return;
+    event.stopImmediatePropagation();
+    subject.value = previous.subject;
+    updateUnits();
+    unit.value = previous.unit;
+    previousScope = previous;
+    updateScope();
+  }, { capture: true });
+  subject.onchange = () => { updateUnits(); changeScope(); };
+  unit.onchange = changeScope;
   search.oninput = resetPage;
   type.onchange = range.onchange = sort.onchange = resetPage;
   get("analysisPrev").onclick = () => { page--; renderRows(); };

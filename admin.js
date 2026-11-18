@@ -1,4 +1,4 @@
-import { renderAdminAnalytics } from "./admin-analytics.js";
+import { renderAdminAnalytics } from "./admin-analytics.js?v=2";
 import { enableCatalogReorder } from "./catalog-order.js";
 import { startReview } from "./exam.js?v=21";
 import { auth } from "./firebase.js?v=8";
@@ -491,7 +491,7 @@ async function renderAnalytics(root, context, options = {}) {
     if (!personal) {
       root.innerHTML = adminHeader("全体の学習分析", "科目・単元・問題ごとの学習結果", options.back) + '<div id="adminAnalytics"></div>';
       if (options.back) bindAdminBack(root, options.back);
-      renderAdminAnalytics(root.querySelector("#adminAnalytics"), context, { rows, subjects, unitsBySubject, progress, escapeHtml });
+      renderAdminAnalytics(root.querySelector("#adminAnalytics"), context, { rows, subjects, unitsBySubject, progress, escapeHtml, onBack: root.querySelector(".back-button") });
       return;
     }
     const overall = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
