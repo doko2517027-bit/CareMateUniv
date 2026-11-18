@@ -65,6 +65,7 @@
         </label>
         <label>パスワード<input id="loginPassword" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
         <button class="primary-button" type="submit">ログイン</button>
+        <p class="hint">ログイン保持時間は最大3時間です。30分間操作がないと自動でログアウトします。</p>
         <button id="forgotPassword" class="text-button" type="button">パスワードを忘れた</button>
       </form>
 
@@ -139,6 +140,6 @@
   <dialog id="appDialog" class="app-dialog"><div id="dialogContent"></div><button id="closeDialog" class="secondary-button" type="button">閉じる</button></dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <script defer src="intro.js?v=1"></script>
-  <script type="module" src="app.js?v=61"></script>
+  <script type="module" src="app.js?v=62"></script>
 </body>
 </html>
